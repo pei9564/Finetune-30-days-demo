@@ -1,5 +1,5 @@
 """
-統一配置系統
+配置系統
 使用 Pydantic 進行參數驗證和管理
 """
 
@@ -71,7 +71,6 @@ class SystemConfig(BaseModel):
         default="logs/training_progress.log", description="訓練進度日誌文件"
     )
     save_config: bool = Field(default=True, description="是否保存配置")
-    config_save_dir: str = Field(default="results/configs", description="配置保存目錄")
 
 
 class Config(BaseModel):

@@ -42,4 +42,3 @@ training:
 system:
   log_file: "logs/training_progress.log"
   save_config: true
-  config_save_dir: "results/configs"

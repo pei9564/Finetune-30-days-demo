@@ -58,16 +58,19 @@ run-local:
 
 
 
-# 查看本地訓練 log（優先顯示 v2 的進度日誌）
+# 查看最新實驗的訓練日誌
 logs-local:
-	@if [ -f logs/training_progress.log ]; then \
-		echo "📋 查看訓練進度（最後 20 行）..."; \
-		tail -n 20 logs/training_progress.log; \
+	@latest_dir=$$(ls -td results/*/ 2>/dev/null | head -n1); \
+	if [ -n "$$latest_dir" ] && [ -f "$$latest_dir/logs.txt" ]; then \
+		echo "📋 查看最新實驗日誌（最後 20 行）..."; \
+		echo "📂 實驗目錄：$$latest_dir"; \
+		tail -n 20 "$$latest_dir/logs.txt"; \
 		echo ""; \
 		echo "💡 提示："; \
-		echo "  - 使用 'tail -f logs/training_progress.log' 來持續監控 log"; \
+		echo "  - 使用 'tail -f $$latest_dir/logs.txt' 來持續監控日誌"; \
+		echo "  - 系統日誌與訓練進度都記錄在此文件中"; \
 	else \
-		echo "❌ 沒有找到訓練 log 文件，請先運行 'make run-local'"; \
+		echo "❌ 沒有找到實驗日誌，請先運行 'make run-local'"; \
 	fi
 
 # 分析資料集分布 (僅用於測試範例)
@@ -172,13 +175,16 @@ help:
 	@echo ""
 	@echo "📊 監控與記錄："
 	@echo "  1. 即時監控："
-	@echo "     - 使用 'tail -f logs/training_progress.log'"
-	@echo "     - 或執行 'make logs-local' 查看最後 20 行"
+	@echo "     - 執行 'make logs-local' 查看最新實驗的日誌"
+	@echo "     - 或使用顯示的 tail -f 命令持續監控"
 	@echo ""
 	@echo "  2. 實驗記錄："
-	@echo "     - 配置記錄：results/configs/{實驗名稱}_{準確率}_{時間戳}.yaml"
-	@echo "     - 訓練日誌：logs/training_progress.log"
-	@echo "     - 模型保存：results/final_model/"
+	@echo "     每次訓練會在 results/ 下創建獨立的實驗目錄："
+	@echo "     - 實驗目錄：results/{實驗名稱}_{時間戳}/"
+	@echo "     - 系統日誌：logs.txt（包含系統操作和訓練進度）"
+	@echo "     - 實驗配置：config.yaml"
+	@echo "     - 評估指標：metrics.json"
+	@echo "     - 模型文件：artifacts/final_model/"
 	@echo ""
 	@echo "🔧 資料管理工具（僅供開發測試用）："
 	@echo "  註：這些命令會使用預設的 SST-2 範例資料集"

@@ -4,6 +4,7 @@ LoRA 訓練腳本 v2
 """
 
 import argparse
+import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -19,7 +20,7 @@ from data_management import (
     get_data_summary,
 )
 from datasets import load_dataset
-from logger_config import setup_logger
+from logger_config import setup_progress_logger, setup_system_logger
 from peft import LoraConfig, get_peft_model
 from transformers import (
     AutoModelForSequenceClassification,
@@ -31,30 +32,16 @@ from transformers import (
 
 from config import load_config
 
+# 全局 logger，會在 setup_experiment_dir 中初始化
+logger: logging.Logger
+
 
 class TrainingProgressCallback(TrainerCallback):
     """訓練進度記錄 callback"""
 
     def __init__(self, log_file):
         super().__init__()
-        self.log_file = log_file
-
-        # 創建 logger
-        self.logger = logging.getLogger("training_progress")
-        self.logger.setLevel(logging.INFO)
-
-        # 清除現有 handlers
-        for handler in self.logger.handlers[:]:
-            self.logger.removeHandler(handler)
-
-        # 只輸出到文件
-        file_handler = logging.FileHandler(log_file, mode="a")
-        file_handler.setLevel(logging.INFO)
-        file_handler.setFormatter(
-            logging.Formatter("%(asctime)s - PROGRESS - %(message)s")
-        )
-
-        self.logger.addHandler(file_handler)
+        self.logger = setup_progress_logger(log_file)
 
     def on_log(self, args, state, control, logs=None, **kwargs):
         """記錄訓練進度"""
@@ -220,7 +207,7 @@ def setup_lora(config, model, device):
     return model
 
 
-def setup_training(config, model, train_dataset, eval_dataset):
+def setup_training(config, model, train_dataset, eval_dataset, exp_dir):
     """設置訓練"""
     # 評估方法
     logger.info("📈 設置評估方法...")
@@ -249,8 +236,8 @@ def setup_training(config, model, train_dataset, eval_dataset):
     logger.info(f"   - 訓練輪數: {training_args.num_train_epochs}")
     logger.info(f"   - 記錄頻率: 每 {training_args.logging_steps} 步")
 
-    # 創建自定義 callback
-    progress_callback = TrainingProgressCallback(config.system.log_file)
+    # 創建自定義 callback，使用實驗目錄中的日誌文件
+    progress_callback = TrainingProgressCallback(exp_dir / "logs.txt")
 
     # 創建 Trainer
     trainer = Trainer(
@@ -296,17 +283,10 @@ def train_and_evaluate(config, trainer):
     return train_result, eval_result
 
 
-def save_experiment_config(config, train_result, eval_result):
-    """保存實驗配置"""
-    if not config.system.save_config:
-        return
-
-    # 生成時間戳
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    # 添加實驗結果
-    config_dict = config.dict()
-    config_dict["results"] = {
+def save_experiment_results(exp_dir, config, train_result, eval_result):
+    """保存實驗結果"""
+    # 準備實驗結果
+    metrics = {
         "train": {
             "global_step": train_result.global_step,
             "runtime": train_result.metrics["train_runtime"],
@@ -315,19 +295,46 @@ def save_experiment_config(config, train_result, eval_result):
         "timestamp": datetime.now().isoformat(),
     }
 
-    # 建立檔名：實驗名稱_準確率_時間戳.yaml
-    accuracy = eval_result["eval_accuracy"]
-    filename = f"{config.experiment_name}_acc{accuracy:.4f}_{timestamp}.yaml"
+    # 保存指標
+    metrics_file = exp_dir / "metrics.json"
+    with open(metrics_file, "w", encoding="utf-8") as f:
+        json.dump(metrics, f, indent=2, ensure_ascii=False)
 
     # 保存配置
-    save_dir = Path(config.system.config_save_dir)
-    save_dir.mkdir(parents=True, exist_ok=True)
-    save_path = save_dir / filename
-
-    with open(save_path, "w", encoding="utf-8") as f:
+    config_dict = config.dict()
+    config_dict["results"] = metrics
+    config_file = exp_dir / "config.yaml"
+    with open(config_file, "w", encoding="utf-8") as f:
         yaml.dump(config_dict, f, allow_unicode=True, sort_keys=False)
 
-    logger.info(f"✅ 實驗配置已保存到 {save_path}")
+    logger.info(f"✅ 實驗結果已保存到 {exp_dir}")
+
+
+def setup_experiment_dir(config):
+    """設置實驗目錄"""
+    global logger
+
+    # 生成時間戳
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # 建立實驗目錄
+    exp_dir = Path("results") / f"{config.experiment_name}_{timestamp}"
+    exp_dir.mkdir(parents=True, exist_ok=True)
+
+    # 建立子目錄
+    artifacts_dir = exp_dir / "artifacts"
+    artifacts_dir.mkdir(exist_ok=True)
+
+    # 設置日誌文件
+    log_file = exp_dir / "logs.txt"
+
+    # 更新配置中的路徑
+    config.training.output_dir = str(artifacts_dir)
+
+    # 設置全局 logger
+    logger = setup_system_logger(name=f"experiment_{timestamp}", log_file=str(log_file))
+
+    return exp_dir
 
 
 def parse_args():
@@ -364,6 +371,10 @@ def main():
     if args.device:
         config.training.device = args.device
 
+    # 設置實驗目錄和日誌
+    exp_dir = setup_experiment_dir(config)
+    logger.info(f"📂 實驗目錄：{exp_dir}")
+
     # 設置設備
     device = setup_device(config)
 
@@ -377,16 +388,14 @@ def main():
     model = setup_lora(config, model, device)
 
     # 設置訓練
-    trainer = setup_training(config, model, train_dataset, eval_dataset)
+    trainer = setup_training(config, model, train_dataset, eval_dataset, exp_dir)
 
     # 訓練與評估
     train_result, eval_result = train_and_evaluate(config, trainer)
 
-    # 保存實驗配置
-    save_experiment_config(config, train_result, eval_result)
+    # 保存實驗結果
+    save_experiment_results(exp_dir, config, train_result, eval_result)
 
 
 if __name__ == "__main__":
-    # 設置 logger
-    logger = setup_logger()
     main()

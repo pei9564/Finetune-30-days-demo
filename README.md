@@ -18,10 +18,13 @@
 │   └── train_lora_v2.py         # LoRA 訓練主程式
 ├── config/
 │   └── default.yaml              # 預設配置文件
-├── results/
-│   ├── configs/                  # 實驗配置記錄
-│   └── final_model/             # 訓練完成的模型
-├── logs/                         # 訓練與驗證日誌
+├── results/                       # 實驗結果目錄
+│   └── {實驗名稱}_{時間戳}/      # 獨立實驗目錄
+│       ├── logs.txt            # 系統日誌與訓練進度
+│       ├── config.yaml         # 實驗配置
+│       ├── metrics.json        # 評估指標
+│       └── artifacts/          # 模型與其他產出
+│           └── final_model/    # 訓練完成的模型
 ├── requirements.txt              # 依賴管理
 ├── Makefile                      # 簡化指令
 └── README.md
@@ -36,7 +39,7 @@
 ```bash
 make setup-conda   # 建立 Conda 環境（自動偵測 GPU/MPS/CPU）
 make run-local     # 使用預設配置開始訓練
-make logs-local    # 查看訓練進度
+make logs-local    # 查看最新實驗的訓練進度
 ```
 
 ### 自定義訓練
@@ -78,9 +81,22 @@ lora:
 
 ## 📊 實驗記錄
 
-- **配置記錄**：`results/configs/{實驗名稱}_{準確率}_{時間戳}.yaml`
-- **訓練日誌**：`logs/training_progress.log`
-- **模型保存**：`results/final_model/`
+每次訓練會自動創建實驗專屬目錄：`results/{實驗名稱}_{時間戳}/`
+
+```
+results/
+└── experiment_name_20240101_120000/
+    ├── logs.txt           # 系統日誌與訓練進度
+    ├── config.yaml        # 本次實驗的完整配置
+    ├── metrics.json       # 訓練結果與評估指標
+    └── artifacts/         # 模型與其他產出
+        └── final_model/   # 訓練完成的模型
+```
+
+- **系統日誌**：記錄設備、模型載入、資料處理等系統操作
+- **訓練進度**：記錄每個步驟的損失值、學習率、評估指標等
+- **實驗配置**：包含所有參數設定，確保實驗可重現
+- **評估指標**：保存最終的訓練時間、準確率等結果
 
 ---
 
