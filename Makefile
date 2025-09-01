@@ -33,9 +33,9 @@ setup-conda:
 		echo "📋 下一步：make run-local" \
 	'
 
-# 本地運行訓練（自動檢測最佳加速方式）
+# 本地運行訓練（使用預設配置）
 run-local:
-	@echo "🚀 檢查並運行本地 LoRA 訓練..."
+	@echo "🚀 檢查並運行 LoRA 訓練（使用預設配置）..."
 	@if ! command -v conda &> /dev/null; then \
 		echo "❌ Conda 未安裝，請先運行 'make setup-conda'"; \
 		exit 1; \
@@ -53,17 +53,19 @@ run-local:
 			exit 1; \
 		fi; \
 		echo "🚀 使用環境 \"$$ENV_NAME\" 開始訓練..."; \
-		source $$(conda info --base)/etc/profile.d/conda.sh && conda activate $$ENV_NAME && python -u app/train_lora.py \
+		source $$(conda info --base)/etc/profile.d/conda.sh && conda activate $$ENV_NAME && python -u app/train_lora_v2.py \
 	'
 
-# 查看本地訓練 log
+
+
+# 查看本地訓練 log（優先顯示 v2 的進度日誌）
 logs-local:
-	@if [ -f logs/local_training.log ]; then \
-		echo "📋 查看訓練 log（最後 20 行）..."; \
-		tail -n 20 logs/local_training.log; \
+	@if [ -f logs/training_progress.log ]; then \
+		echo "📋 查看訓練進度（最後 20 行）..."; \
+		tail -n 20 logs/training_progress.log; \
 		echo ""; \
 		echo "💡 提示："; \
-		echo "  - 使用 'tail -f logs/local_training.log' 來持續監控 log"; \
+		echo "  - 使用 'tail -f logs/training_progress.log' 來持續監控 log"; \
 	else \
 		echo "❌ 沒有找到訓練 log 文件，請先運行 'make run-local'"; \
 	fi
@@ -141,26 +143,47 @@ data-versions:
 help:
 	@echo "🍎 LoRA 訓練環境管理命令"
 	@echo ""
-	@echo "🍎 本地 Conda 模式："
-	@echo "  setup-conda   - 檢查並創建 Conda 環境"
-	@echo "  run-local     - 在本地運行訓練"
-	@echo "  logs-local    - 查看訓練 log（最後 20 行）"
+	@echo "🚀 基本使用流程："
+	@echo "  1. make setup-conda   - 首次使用：檢查並創建 Conda 環境"
+	@echo "  2. make run-local     - 執行訓練（使用預設配置）"
+	@echo "  3. make logs-local    - 查看訓練進度"
 	@echo ""
-	@echo "📊 資料管理（僅用於測試範例）："
-	@echo "  data-analyze  - 分析資料集分布與統計"
-	@echo "  data-validate - 驗證資料集品質"
-	@echo "  data-versions - 管理資料版本"
+	@echo "⚙️ 配置說明："
+	@echo "  1. 預設配置文件：config/default.yaml"
+	@echo "     - 包含所有可調整的參數與預設值"
+	@echo "     - 直接修改此文件來更改預設配置"
 	@echo ""
-	@echo "📚 其他："
-	@echo "  help          - 顯示此幫助信息"
+	@echo "  2. 命令列參數（優先於預設配置）："
+	@echo "     python app/train_lora_v2.py [參數]"
 	@echo ""
-	@echo "💡 提示："
-	@echo "  - 首次使用請先執行 'make setup-conda' 設置環境"
-	@echo "  - 然後使用 'make run-local' 開始訓練"
-	@echo "  - 想要即時查看 log 請使用 'make run-local' 直接運行"
-	@echo "  - 查看 log 文件：'make logs-local'"
-	@echo "  - 持續監控 log：'tail -f logs/local_training.log'"
-	@echo "  - 資料分析與管理：'make data-analyze', 'make data-validate', 'make data-versions'"
-
-
-	
+	@echo "     常用參數："
+	@echo "     --experiment_name TEXT    實驗名稱"
+	@echo "     --learning_rate FLOAT     學習率"
+	@echo "     --epochs INT              訓練輪數"
+	@echo "     --train_samples INT       訓練樣本數"
+	@echo "     --device TEXT             指定設備 (cuda/mps/cpu)"
+	@echo ""
+	@echo "     完整範例："
+	@echo "     python app/train_lora_v2.py \\"
+	@echo "       --experiment_name \"custom_test\" \\"
+	@echo "       --learning_rate 0.001 \\"
+	@echo "       --epochs 3 \\"
+	@echo "       --train_samples 1000"
+	@echo ""
+	@echo "📊 監控與記錄："
+	@echo "  1. 即時監控："
+	@echo "     - 使用 'tail -f logs/training_progress.log'"
+	@echo "     - 或執行 'make logs-local' 查看最後 20 行"
+	@echo ""
+	@echo "  2. 實驗記錄："
+	@echo "     - 配置記錄：results/configs/{實驗名稱}_{準確率}_{時間戳}.yaml"
+	@echo "     - 訓練日誌：logs/training_progress.log"
+	@echo "     - 模型保存：results/final_model/"
+	@echo ""
+	@echo "🔧 資料管理工具（僅供開發測試用）："
+	@echo "  註：這些命令會使用預設的 SST-2 範例資料集"
+	@echo "  實際訓練時的資料管理已整合在訓練流程中"
+	@echo ""
+	@echo "  make data-analyze   - 分析資料集分布"
+	@echo "  make data-validate  - 驗證資料集品質"
+	@echo "  make data-versions  - 管理資料版本"
