@@ -1,4 +1,4 @@
-.PHONY: setup-conda run-local logs-local data-analyze data-validate data-versions help
+.PHONY: setup-conda run-local logs-local data-analyze data-validate data-versions start-services start-worker start-api help
 
 # 本地 Conda 環境設置（自動檢測晶片類型）
 setup-conda:
@@ -53,7 +53,9 @@ run-local:
 			exit 1; \
 		fi; \
 		echo "🚀 使用環境 \"$$ENV_NAME\" 開始訓練..."; \
-		source $$(conda info --base)/etc/profile.d/conda.sh && conda activate $$ENV_NAME && python -u app/train_lora_v2.py \
+		source $$(conda info --base)/etc/profile.d/conda.sh && \
+		conda activate $$ENV_NAME && \
+		cd $(PWD) && PYTHONPATH=$(PWD) python -u app/train_lora_v2.py \
 	'
 
 
@@ -93,7 +95,9 @@ data-analyze:
 			exit 1; \
 		fi; \
 		echo "📊 使用環境 \"$$ENV_NAME\" 分析資料..."; \
-		source $$(conda info --base)/etc/profile.d/conda.sh && conda activate $$ENV_NAME && PYTHONWARNINGS="ignore::RuntimeWarning" python -m app.data_management.dataset_analyzer \
+		source $$(conda info --base)/etc/profile.d/conda.sh && \
+		conda activate $$ENV_NAME && \
+		cd $(PWD) && PYTHONPATH=$(PWD) PYTHONWARNINGS="ignore::RuntimeWarning" python -m app.data_management.dataset_analyzer \
 	'
 
 # 驗證資料集品質 (僅用於測試範例)
@@ -116,7 +120,9 @@ data-validate:
 			exit 1; \
 		fi; \
 		echo "🔍 使用環境 \"$$ENV_NAME\" 驗證資料..."; \
-		source $$(conda info --base)/etc/profile.d/conda.sh && conda activate $$ENV_NAME && PYTHONWARNINGS="ignore::RuntimeWarning" python -m app.data_management.data_validator \
+		source $$(conda info --base)/etc/profile.d/conda.sh && \
+		conda activate $$ENV_NAME && \
+		cd $(PWD) && PYTHONPATH=$(PWD) PYTHONWARNINGS="ignore::RuntimeWarning" python -m app.data_management.data_validator \
 	'
 
 # 管理資料版本 (僅用於測試範例)
@@ -139,7 +145,9 @@ data-versions:
 			exit 1; \
 		fi; \
 		echo "📦 使用環境 \"$$ENV_NAME\" 管理版本..."; \
-		source $$(conda info --base)/etc/profile.d/conda.sh && conda activate $$ENV_NAME && PYTHONWARNINGS="ignore::RuntimeWarning" python -m app.data_management.version_manager \
+		source $$(conda info --base)/etc/profile.d/conda.sh && \
+		conda activate $$ENV_NAME && \
+		cd $(PWD) && PYTHONPATH=$(PWD) PYTHONWARNINGS="ignore::RuntimeWarning" python -m app.data_management.version_manager \
 	'
 
 # 顯示幫助
@@ -157,7 +165,7 @@ help:
 	@echo "     - 直接修改此文件來更改預設配置"
 	@echo ""
 	@echo "  2. 命令列參數（優先於預設配置）："
-	@echo "     python app/train_lora_v2.py [參數]"
+	@echo "     PYTHONPATH=$(PWD) python app/train_lora_v2.py [參數]"
 	@echo ""
 	@echo "     常用參數："
 	@echo "     --experiment_name TEXT    實驗名稱"
@@ -193,3 +201,68 @@ help:
 	@echo "  make data-analyze   - 分析資料集分布"
 	@echo "  make data-validate  - 驗證資料集品質"
 	@echo "  make data-versions  - 管理資料版本"
+
+# 啟動 Redis 服務
+start-services:
+	@echo "🚀 啟動 Redis 服務..."
+	@if ! command -v docker-compose &> /dev/null; then \
+		echo "❌ docker-compose 未安裝"; \
+		exit 1; \
+	fi
+	docker-compose up -d
+
+# 啟動 Celery worker
+start-worker:
+	@echo "👷 啟動 Celery worker..."
+	@if ! command -v conda &> /dev/null; then \
+		echo "❌ Conda 未安裝，請先運行 'make setup-conda'"; \
+		exit 1; \
+	fi
+	@bash -c '\
+		if command -v nvidia-smi &> /dev/null; then \
+			ENV_NAME="lora-gpu"; \
+		elif uname -m | grep -q "arm64"; then \
+			ENV_NAME="lora-m3"; \
+		else \
+			ENV_NAME="lora-cpu"; \
+		fi; \
+		if ! conda env list | grep -q "$$ENV_NAME"; then \
+			echo "❌ Conda 環境 \"$$ENV_NAME\" 不存在，請先運行 \"make setup-conda\""; \
+			exit 1; \
+		fi; \
+		echo "🚀 使用環境 \"$$ENV_NAME\" 啟動 worker..."; \
+		source $$(conda info --base)/etc/profile.d/conda.sh && \
+		conda activate $$ENV_NAME && \
+		cd $(PWD) && PYTHONPATH=$(PWD) celery -A app.tasks worker -l INFO -P solo \
+	'
+
+# 啟動 FastAPI 服務
+start-api:
+	@echo "🚀 啟動 API 服務..."
+	@if ! command -v conda &> /dev/null; then \
+		echo "❌ Conda 未安裝，請先運行 'make setup-conda'"; \
+		exit 1; \
+	fi
+	@bash -c '\
+		if command -v nvidia-smi &> /dev/null; then \
+			ENV_NAME="lora-gpu"; \
+		elif uname -m | grep -q "arm64"; then \
+			ENV_NAME="lora-m3"; \
+		else \
+			ENV_NAME="lora-cpu"; \
+		fi; \
+		if ! conda env list | grep -q "$$ENV_NAME"; then \
+			echo "❌ Conda 環境 \"$$ENV_NAME\" 不存在，請先運行 \"make setup-conda\""; \
+			exit 1; \
+		fi; \
+		echo "🚀 使用環境 \"$$ENV_NAME\" 啟動 API..."; \
+		source $$(conda info --base)/etc/profile.d/conda.sh && \
+		conda activate $$ENV_NAME && \
+		cd $(PWD) && PYTHONPATH=$(PWD) uvicorn app.api:app --reload --host 0.0.0.0 --port 8000 \
+	'
+
+	@echo ""
+	@echo "🚀 非同步訓練服務："
+	@echo "  make start-services - 啟動 Redis 服務"
+	@echo "  make start-worker   - 啟動 Celery worker"
+	@echo "  make start-api      - 啟動 FastAPI 服務"

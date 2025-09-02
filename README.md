@@ -9,13 +9,17 @@
 
 ```
 ├── app/
-│   ├── config.py                  # 配置定義與管理
-│   ├── data_management/          # 資料管理模組
-│   │   ├── data_validator.py     # 資料驗證與清理
-│   │   ├── dataset_analyzer.py   # 標籤分布分析
-│   │   └── version_manager.py    # 資料版本控制
-│   ├── logger_config.py          # 日誌系統
-│   └── train_lora_v2.py         # LoRA 訓練主程式
+│   ├── api.py                    # FastAPI 應用
+│   ├── config.py                 # 配置定義與管理
+│   ├── data_management/         # 資料管理模組
+│   │   ├── data_validator.py    # 資料驗證與清理
+│   │   ├── dataset_analyzer.py  # 標籤分布分析
+│   │   └── version_manager.py   # 資料版本控制
+│   ├── logger_config.py         # 日誌系統
+│   ├── tasks/                   # Celery 任務
+│   │   ├── __init__.py         # Celery 應用配置
+│   │   └── training.py         # 訓練任務定義
+│   └── train_lora_v2.py        # LoRA 訓練主程式
 ├── config/
 │   └── default.yaml              # 預設配置文件
 ├── results/                       # 實驗結果目錄
@@ -36,11 +40,34 @@
 
 ### 基本使用
 
+1. **本地直接訓練**：
 ```bash
 make setup-conda   # 建立 Conda 環境（自動偵測 GPU/MPS/CPU）
 make run-local     # 使用預設配置開始訓練
 make logs-local    # 查看最新實驗的訓練進度
 ```
+
+2. **非同步訓練服務**：
+```bash
+# 1. 啟動服務（需要開啟三個終端）
+make start-services  # 啟動 Redis（任務佇列與結果存儲）
+make start-worker   # 啟動 Celery worker
+make start-api      # 啟動 FastAPI 服務
+
+# 2. 提交訓練任務
+curl -X POST http://localhost:8000/train \
+  -H "Content-Type: application/json" \
+  -d '{"experiment_name": "test_async", "epochs": 1}'
+
+# 3. 查詢任務狀態
+curl http://localhost:8000/task/{task_id}
+```
+
+> 💡 **Redis 資料說明**：
+> - **Broker (DB 0)**：存儲任務佇列
+> - **Backend (DB 1)**：存儲任務結果
+> - **資料位置**：`redis://localhost:6379/`
+> - **持久化**：預設為記憶體儲存，重啟後清空
 
 ### 自定義訓練
 
@@ -129,3 +156,6 @@ make data-versions   # 管理資料版本
 - 使用 `make help` 查看完整的命令說明
 - 實驗配置會自動保存，方便追蹤和重現
 - 資料管理功能在訓練時自動執行，確保資料品質
+- 非同步訓練需要安裝 Docker（用於運行 Redis）
+- 訓練結果與同步模式相同，都保存在 `results/` 目錄
+- Redis 資料僅用於任務佇列和狀態追蹤，不保存訓練結果

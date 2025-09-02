@@ -13,14 +13,7 @@ import evaluate
 import numpy as np
 import torch
 import yaml
-from data_management import (
-    DataValidator,
-    DataVersionManager,
-    analyze_distribution,
-    get_data_summary,
-)
 from datasets import load_dataset
-from logger_config import setup_progress_logger, setup_system_logger
 from peft import LoraConfig, get_peft_model
 from transformers import (
     AutoModelForSequenceClassification,
@@ -30,7 +23,14 @@ from transformers import (
     TrainingArguments,
 )
 
-from config import load_config
+from app.config import load_config
+from app.data_management import (
+    DataValidator,
+    DataVersionManager,
+    analyze_distribution,
+    get_data_summary,
+)
+from app.logger_config import setup_progress_logger, setup_system_logger
 
 # 全局 logger，會在 setup_experiment_dir 中初始化
 logger: logging.Logger
@@ -351,25 +351,33 @@ def parse_args():
     return parser.parse_args()
 
 
-def main():
-    """主函數"""
-    # 解析參數
-    args = parse_args()
+def main(config=None):
+    """主函數
 
-    # 載入配置
-    config = load_config(args.config)
+    Args:
+        config: 配置對象，如果為 None 則從命令列參數載入
 
-    # 更新配置
-    if args.experiment_name:
-        config.experiment_name = args.experiment_name
-    if args.learning_rate:
-        config.training.learning_rate = args.learning_rate
-    if args.epochs:
-        config.training.num_train_epochs = args.epochs
-    if args.train_samples:
-        config.data.train_samples = args.train_samples
-    if args.device:
-        config.training.device = args.device
+    Returns:
+        tuple: (train_result, eval_result) 訓練結果和評估結果
+    """
+    if config is None:
+        # 解析參數
+        args = parse_args()
+
+        # 載入配置
+        config = load_config(args.config)
+
+        # 更新配置
+        if args.experiment_name:
+            config.experiment_name = args.experiment_name
+        if args.learning_rate:
+            config.training.learning_rate = args.learning_rate
+        if args.epochs:
+            config.training.num_train_epochs = args.epochs
+        if args.train_samples:
+            config.data.train_samples = args.train_samples
+        if args.device:
+            config.training.device = args.device
 
     # 設置實驗目錄和日誌
     exp_dir = setup_experiment_dir(config)
@@ -395,6 +403,8 @@ def main():
 
     # 保存實驗結果
     save_experiment_results(exp_dir, config, train_result, eval_result)
+
+    return train_result, eval_result
 
 
 if __name__ == "__main__":
