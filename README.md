@@ -1,7 +1,14 @@
-# Finetune-30-days — LoRA 訓練與資料管理
+# Finetune-30-days — LoRA 訓練與實驗管理
 
-此專案提供一個最小化的 **LoRA 微調範例**，支援 M3 晶片 (MPS)、NVIDIA GPU (CUDA) 與 CPU。
-設計目標：快速建立環境、驗證流程、保存結果，並具備 **資料版本管理與驗證機制**。
+此專案提供一個完整的 **LoRA 微調系統**，支援 M3 晶片 (MPS)、NVIDIA GPU (CUDA) 與 CPU。
+
+**主要特點**：
+- 🚀 支援同步（本地）與非同步（分散式）訓練
+- 📊 完整的資料版本管理與驗證機制
+- 🎯 實驗結果自動保存與追蹤
+- 🌐 網頁界面支援任務提交與進度監控
+- 🔄 基於 Celery + Redis 的非同步任務系統
+- 📝 結構化的配置管理（Pydantic + YAML）
 
 ---
 
@@ -49,25 +56,35 @@ make logs-local    # 查看最新實驗的訓練進度
 
 2. **非同步訓練服務**：
 ```bash
-# 1. 啟動服務（需要開啟三個終端）
+# 1. 啟動服務（需要開啟四個終端）
 make start-services  # 啟動 Redis（任務佇列與結果存儲）
 make start-worker   # 啟動 Celery worker
 make start-api      # 啟動 FastAPI 服務
+make start-ui       # 啟動網頁界面
 
-# 2. 提交訓練任務
+# 2. 使用網頁界面（推薦）
+# 訪問 http://localhost:8501
+# - 提交任務：選擇「提交任務」頁籤，設置參數
+# - 追蹤進度：選擇「追蹤進度」頁籤，輸入 task_id
+
+# 3. 或使用 API（進階）
 curl -X POST http://localhost:8000/train \
   -H "Content-Type: application/json" \
   -d '{"experiment_name": "test_async", "epochs": 1}'
 
-# 3. 查詢任務狀態
-curl http://localhost:8000/task/{task_id}
+curl http://localhost:8000/task/{task_id}  # 查詢任務狀態
 ```
 
-> 💡 **Redis 資料說明**：
-> - **Broker (DB 0)**：存儲任務佇列
-> - **Backend (DB 1)**：存儲任務結果
-> - **資料位置**：`redis://localhost:6379/`
-> - **持久化**：預設為記憶體儲存，重啟後清空
+> 💡 **服務說明**：
+> - **Redis (localhost:6379)**：
+>   - DB 0：任務佇列（broker）
+>   - DB 1：任務結果（backend）
+>   - 預設為記憶體儲存，重啟後清空
+> - **FastAPI (localhost:8000)**：REST API 服務
+> - **Streamlit UI (localhost:8501)**：網頁操作界面
+>   - 支援所有 default.yaml 中的參數配置
+>   - 自動生成臨時配置文件（不納入版控）
+>   - 即時顯示訓練進度（每 2 秒更新）
 
 ### 自定義訓練
 
@@ -152,10 +169,18 @@ make data-versions   # 管理資料版本
 
 ## 💡 注意事項
 
+### 環境設置
 - 首次使用請執行 `make setup-conda` 設置環境
 - 使用 `make help` 查看完整的命令說明
+- 非同步訓練需要安裝 Docker（用於運行 Redis）
+
+### 訓練與配置
 - 實驗配置會自動保存，方便追蹤和重現
 - 資料管理功能在訓練時自動執行，確保資料品質
-- 非同步訓練需要安裝 Docker（用於運行 Redis）
 - 訓練結果與同步模式相同，都保存在 `results/` 目錄
+
+### 非同步服務
 - Redis 資料僅用於任務佇列和狀態追蹤，不保存訓練結果
+- 網頁界面生成的臨時配置文件（`config/temp_*.yaml`）不會納入版控
+- 建議使用網頁界面操作，API 接口主要用於程式整合
+- 所有服務都需要在 Conda 環境中運行（`lora-m3` 或 `lora-cuda`）

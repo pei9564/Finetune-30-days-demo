@@ -1,0 +1,374 @@
+"""
+訓練任務管理 UI
+使用 Streamlit 實現任務提交和進度追蹤
+"""
+
+import time
+from datetime import datetime
+from typing import Dict, Optional
+
+import requests
+import streamlit as st
+import yaml
+
+
+def load_default_config() -> Dict:
+    """載入預設配置
+
+    Returns:
+        Dict: 預設配置
+    """
+    try:
+        with open("config/default.yaml", "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
+    except Exception as e:
+        st.error(f"載入預設配置失敗：{e}")
+        return {}
+
+
+def get_task_status(task_id: str) -> Optional[Dict]:
+    """查詢任務狀態
+
+    Args:
+        task_id: 任務 ID
+
+    Returns:
+        Dict: 任務狀態資訊，如果請求失敗則返回 None
+    """
+    try:
+        response = requests.get(f"http://localhost:8000/task/{task_id}")
+        return response.json()
+    except Exception as e:
+        st.error(f"查詢失敗：{e}")
+        return None
+
+
+def render_stepper(status: str):
+    """渲染進度指示器
+
+    Args:
+        status: 任務狀態
+    """
+    # 定義所有步驟
+    steps = ["PENDING", "STARTED", "SUCCESS/FAILURE"]
+    current_step = 0
+
+    # 根據狀態確定當前步驟
+    if status == "PENDING":
+        current_step = 0
+    elif status == "STARTED":
+        current_step = 1
+    elif status in ["SUCCESS", "FAILURE"]:
+        current_step = 2
+
+    # 創建進度條容器
+    cols = st.columns(len(steps))
+
+    # 渲染每個步驟
+    for i, (step, col) in enumerate(zip(steps, cols)):
+        # 設置步驟樣式
+        if i < current_step:  # 已完成
+            color = "green"
+            symbol = "✅"
+        elif i == current_step:  # 當前
+            color = "blue"
+            symbol = "🔄"
+            if status == "FAILURE" and i == 2:
+                color = "red"
+                symbol = "❌"
+            elif status == "SUCCESS" and i == 2:
+                color = "green"
+                symbol = "✅"
+        else:  # 未開始
+            color = "gray"
+            symbol = "⭕️"
+
+        # 在每個 column 中顯示步驟
+        with col:
+            st.markdown(
+                f'<div style="text-align: center; color: {color};">'
+                f"<h4>{symbol} {step}</h4>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+
+def submit_training_task(
+    experiment_name: Optional[str] = None,
+    model_name: Optional[str] = None,
+    dataset: Optional[str] = None,
+    train_samples: Optional[int] = None,
+    eval_samples: Optional[int] = None,
+    batch_size: Optional[int] = None,
+    lora_r: Optional[int] = None,
+    lora_alpha: Optional[int] = None,
+    learning_rate: Optional[float] = None,
+    epochs: Optional[int] = None,
+    device: Optional[str] = None,
+) -> Optional[str]:
+    """提交訓練任務
+
+    Args:
+        experiment_name: 實驗名稱
+        model_name: 預訓練模型名稱
+        dataset: 資料集名稱
+        train_samples: 訓練樣本數
+        eval_samples: 驗證樣本數
+        batch_size: 批次大小
+        lora_r: LoRA 秩
+        lora_alpha: LoRA Alpha
+        learning_rate: 學習率
+        epochs: 訓練輪數
+        device: 訓練設備
+
+    Returns:
+        Optional[str]: 任務 ID，如果提交失敗則返回 None
+    """
+    try:
+        # 準備配置
+        config = load_default_config()
+
+        # 更新配置
+        if experiment_name:
+            config["experiment_name"] = experiment_name
+        if model_name:
+            config["model"]["name"] = model_name
+        if dataset:
+            # 處理資料集名稱
+            if "/" in dataset:
+                dataset_name, dataset_config = dataset.split("/")
+            else:
+                dataset_name = dataset
+                dataset_config = None
+            config["data"]["dataset_name"] = dataset_name
+            if dataset_config:
+                config["data"]["dataset_config"] = dataset_config
+        if train_samples:
+            config["data"]["train_samples"] = train_samples
+        if eval_samples:
+            config["data"]["eval_samples"] = eval_samples
+        if batch_size:
+            config["training"]["per_device_train_batch_size"] = batch_size
+        if lora_r:
+            config["lora"]["r"] = lora_r
+        if lora_alpha:
+            config["lora"]["lora_alpha"] = lora_alpha
+        if learning_rate:
+            config["training"]["learning_rate"] = learning_rate
+        if epochs:
+            config["training"]["num_train_epochs"] = epochs
+        if device and device != "auto":
+            config["training"]["device"] = device
+
+        # 保存臨時配置文件（使用時間戳避免衝突）
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        config_path = f"config/temp_{experiment_name}_{timestamp}.yaml"
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.dump(config, f, allow_unicode=True)
+
+        # 提交任務
+        response = requests.post(
+            "http://localhost:8000/train",
+            json={
+                "config_path": config_path,
+                "experiment_name": experiment_name,
+            },
+        )
+        result = response.json()
+        return result.get("task_id")
+    except Exception as e:
+        st.error(f"提交任務失敗：{e}")
+        return None
+
+
+def render_task_form():
+    """渲染任務提交表單"""
+    st.markdown("### 提交訓練任務")
+
+    # 載入預設配置
+    default_config = load_default_config()
+
+    # 創建表單
+    with st.form("training_form"):
+        # 實驗設置
+        st.markdown("#### 實驗設置")
+        experiment_name = st.text_input(
+            "實驗名稱",
+            value=default_config.get("experiment_name", "default_experiment"),
+            help="為這次實驗取一個有意義的名稱",
+        )
+
+        # 模型設置
+        st.markdown("#### 模型設置")
+        model_name = st.selectbox(
+            "預訓練模型",
+            options=["distilbert-base-uncased", "bert-base-uncased", "roberta-base"],
+            index=0,
+            help="選擇要微調的基礎模型",
+        )
+
+        # 資料設置
+        st.markdown("#### 資料設置")
+        col1, col2 = st.columns(2)
+        with col1:
+            dataset = st.selectbox(
+                "資料集",
+                options=["glue/sst2", "glue/cola", "imdb"],
+                index=0,
+                help="選擇訓練資料集（格式：dataset_name/config 或 dataset_name）",
+            )
+            train_samples = st.number_input(
+                "訓練樣本數",
+                value=int(default_config.get("data", {}).get("train_samples", 500)),
+                min_value=100,
+                max_value=10000,
+                step=100,
+                help="使用多少樣本進行訓練",
+            )
+        with col2:
+            eval_samples = st.number_input(
+                "驗證樣本數",
+                value=int(default_config.get("data", {}).get("eval_samples", 100)),
+                min_value=50,
+                max_value=2000,
+                step=50,
+                help="使用多少樣本進行驗證",
+            )
+            batch_size = st.number_input(
+                "批次大小",
+                value=int(
+                    default_config.get("training", {}).get(
+                        "per_device_train_batch_size", 2
+                    )
+                ),
+                min_value=1,
+                max_value=32,
+                help="每批處理的樣本數量",
+            )
+
+        # LoRA 設置
+        st.markdown("#### LoRA 設置")
+        col3, col4 = st.columns(2)
+        with col3:
+            lora_r = st.number_input(
+                "LoRA 秩 (r)",
+                value=int(default_config.get("lora", {}).get("r", 8)),
+                min_value=1,
+                max_value=64,
+                help="LoRA 矩陣的秩，越大效果越好但參數更多",
+            )
+            learning_rate = st.number_input(
+                "學習率",
+                value=float(
+                    default_config.get("training", {}).get("learning_rate", 5e-4)
+                ),
+                format="%.0e",
+                help="訓練的學習率",
+            )
+        with col4:
+            lora_alpha = st.number_input(
+                "LoRA Alpha",
+                value=int(default_config.get("lora", {}).get("lora_alpha", 16)),
+                min_value=1,
+                max_value=128,
+                help="LoRA 的縮放參數",
+            )
+            epochs = st.number_input(
+                "訓練輪數",
+                value=int(
+                    default_config.get("training", {}).get("num_train_epochs", 1)
+                ),
+                min_value=1,
+                max_value=10,
+                help="完整訓練資料集的次數",
+            )
+
+        # 系統設置
+        st.markdown("#### 系統設置")
+        device = st.selectbox(
+            "訓練設備",
+            options=["auto", "cuda", "mps", "cpu"],
+            index=0,
+            help="選擇訓練使用的設備，auto 會自動選擇最佳設備",
+        )
+
+        # 提交按鈕
+        submitted = st.form_submit_button("提交訓練任務")
+        if submitted:
+            # 提交任務
+            task_id = submit_training_task(
+                experiment_name=experiment_name,
+                model_name=model_name,
+                dataset=dataset,
+                train_samples=train_samples,
+                eval_samples=eval_samples,
+                batch_size=batch_size,
+                lora_r=lora_r,
+                lora_alpha=lora_alpha,
+                learning_rate=learning_rate,
+                epochs=epochs,
+                device=None if device == "auto" else device,
+            )
+
+            if task_id:
+                st.success(f"任務提交成功！任務 ID：{task_id}")
+                # 將任務 ID 存入 session state
+                st.session_state.last_task_id = task_id
+
+
+def main():
+    """主函數"""
+    st.title("LoRA 訓練任務管理")
+
+    # 添加頁籤
+    tab1, tab2 = st.tabs(["提交任務", "追蹤進度"])
+
+    # 提交任務頁籤
+    with tab1:
+        render_task_form()
+
+    # 追蹤進度頁籤
+    with tab2:
+        # 如果有最新提交的任務 ID，自動填入
+        default_task_id = st.session_state.get("last_task_id", "")
+
+        # 輸入任務 ID
+        task_id = st.text_input("請輸入任務 ID", value=default_task_id)
+        check_status = st.button("查詢狀態")
+
+        # 如果有輸入 ID 且點擊查詢
+        if task_id and check_status:
+            status_placeholder = st.empty()
+
+            while True:
+                # 查詢狀態
+                result = get_task_status(task_id)
+                if not result:
+                    break
+
+                # 清空佔位元件並顯示新狀態
+                with status_placeholder:
+                    st.markdown("---")
+                    st.markdown(f"**任務狀態**：{result['status']}")
+                    render_stepper(result["status"])
+
+                    # 如果有結果，顯示
+                    if "result" in result:
+                        st.markdown("---")
+                        st.markdown("**訓練結果**：")
+                        st.json(result["result"])
+                    # 如果有錯誤，顯示
+                    elif "error" in result:
+                        st.markdown("---")
+                        st.error(f"錯誤信息：{result['error']}")
+
+                # 如果任務完成或失敗，停止輪詢
+                if result["status"] in ["SUCCESS", "FAILURE"]:
+                    break
+
+                # 等待 2 秒後再次查詢
+                time.sleep(2)
+
+
+if __name__ == "__main__":
+    main()

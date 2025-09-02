@@ -2,6 +2,9 @@
 results/
 data/
 
+# 臨時配置文件
+config/temp_*.yaml
+
 
 
 # Byte-compiled / optimized / DLL files

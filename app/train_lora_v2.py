@@ -319,7 +319,7 @@ def setup_experiment_dir(config):
 
     # 建立實驗目錄
     exp_dir = Path("results") / f"{config.experiment_name}_{timestamp}"
-    exp_dir.mkdir(parents=True, exist_ok=True)
+    exp_dir.mkdir(exist_ok=True)
 
     # 建立子目錄
     artifacts_dir = exp_dir / "artifacts"

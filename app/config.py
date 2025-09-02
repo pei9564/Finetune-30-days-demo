@@ -67,9 +67,6 @@ class SystemConfig(BaseModel):
     """系統相關配置"""
 
     experiment_name: str = Field(default="default_experiment", description="實驗名稱")
-    log_file: str = Field(
-        default="logs/training_progress.log", description="訓練進度日誌文件"
-    )
     save_config: bool = Field(default=True, description="是否保存配置")
 
 
