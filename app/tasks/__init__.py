@@ -3,12 +3,13 @@ Celery 應用配置
 """
 
 from celery import Celery
+from settings import CELERY_BROKER_URL, CELERY_RESULT_BACKEND
 
 # 創建 Celery 應用
 celery_app = Celery(
     "lora_training",
-    broker="redis://localhost:6379/0",
-    backend="redis://localhost:6379/1",
+    broker=CELERY_BROKER_URL,
+    backend=CELERY_RESULT_BACKEND,
 )
 
 # 配置 Celery

@@ -10,6 +10,7 @@ from typing import Dict, Optional
 import requests
 import streamlit as st
 import yaml
+from settings import API_URL
 
 
 def load_default_config() -> Dict:
@@ -36,7 +37,7 @@ def get_task_status(task_id: str) -> Optional[Dict]:
         Dict: 任務狀態資訊，如果請求失敗則返回 None
     """
     try:
-        response = requests.get(f"http://localhost:8000/task/{task_id}")
+        response = requests.get(f"{API_URL}/task/{task_id}")
         return response.json()
     except Exception as e:
         st.error(f"查詢失敗：{e}")
@@ -168,7 +169,7 @@ def submit_training_task(
 
         # 提交任務
         response = requests.post(
-            "http://localhost:8000/train",
+            f"{API_URL}/train",
             json={
                 "config_path": config_path,
                 "experiment_name": experiment_name,
@@ -372,11 +373,11 @@ def render_experiment_list():
         if max_runtime > 0:
             params["max_runtime"] = max_runtime
 
-        response = requests.get("http://localhost:8000/experiments", params=params)
+        response = requests.get(f"{API_URL}/experiments", params=params)
         experiments = response.json()
 
         # 顯示統計資訊
-        stats_response = requests.get("http://localhost:8000/experiments/stats")
+        stats_response = requests.get(f"{API_URL}/experiments/stats")
         stats = stats_response.json()
 
         col1, col2, col3, col4 = st.columns(4)
@@ -410,17 +411,18 @@ def render_experiment_list():
                 }
             )
 
-        # 顯示表格並獲取選中的行
-        selected_indices = st.data_editor(
+        # 顯示表格
+        st.dataframe(
             data,
             column_config={
                 "ID": st.column_config.TextColumn(
                     "ID",
-                    help="點擊查看詳細資訊",
+                    help="實驗唯一識別碼",
                     width="medium",
                 ),
             },
             hide_index=True,
+            width="stretch",
         )
 
     except Exception as e:

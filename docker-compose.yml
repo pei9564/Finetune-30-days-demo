@@ -1,7 +1,88 @@
-version: '3'
-
 services:
   redis:
     image: redis:latest
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - lora_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: python -m celery -A tasks worker --loglevel=info -P solo
+    volumes:
+      - ./results:/app/results
+      - ./config:/app/config
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+      - TZ=${TZ}
+      - PYTHONPATH=${PYTHONPATH}
+      - PYTHONUNBUFFERED=${PYTHONUNBUFFERED}
+    networks:
+      - lora_network
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: python -m uvicorn api:app --host ${API_HOST} --port ${API_PORT} --reload
+    ports:
+      - "${API_PORT}:${API_PORT}"
+    volumes:
+      - ./results:/app/results
+      - ./app:/app  # 開發模式：掛載源碼目錄
+      - ./config:/app/config
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+      - REDIS_URL=redis://${REDIS_HOST}:${REDIS_PORT}
+      - API_URL=${API_URL}
+      - TZ=${TZ}
+      - PYTHONPATH=${PYTHONPATH}
+      - PYTHONUNBUFFERED=${PYTHONUNBUFFERED}
+    networks:
+      - lora_network
+
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: python -m streamlit run stepper_ui.py
+    ports:
+      - "${UI_PORT}:8501"
+    volumes:
+      - ./results:/app/results
+      - ./app:/app  # 開發模式：掛載源碼目錄
+      - ./config:/app/config
+    depends_on:
+      - api
+    environment:
+      - API_URL=${API_URL}
+      - REDIS_URL=redis://${REDIS_HOST}:${REDIS_PORT}
+      - TZ=${TZ}
+      - PYTHONPATH=${PYTHONPATH}
+      - PYTHONUNBUFFERED=${PYTHONUNBUFFERED}
+    networks:
+      - lora_network
+
+networks:
+  lora_network:
+    driver: bridge
+
+volumes:
+  redis_data:

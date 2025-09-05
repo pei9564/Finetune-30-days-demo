@@ -1,4 +1,4 @@
-.PHONY: setup-conda run-local logs-local data-analyze data-validate data-versions start-services start-worker start-api start-ui help db-list
+.PHONY: setup-conda run-local logs-local data-analyze data-validate data-versions start-services stop-services restart-services logs-services logs-service help db-list check-docker
 
 # 通用變量
 PYTHON_VERSION := 3.11
@@ -123,66 +123,45 @@ db-list:
 		printf('%.1fs', train_runtime) as '訓練時間' \
 		FROM experiments ORDER BY created_at DESC;"
 
-# 非同步訓練服務
-start-services:
-	@echo "🚀 啟動 Redis 服務..."
+# Docker 服務管理
+check-docker:
 	@if ! command -v docker-compose &> /dev/null; then \
 		echo "❌ docker-compose 未安裝"; \
 		exit 1; \
 	fi
-	docker-compose up -d
 
-# 定義啟動服務的函數
-define start_service
-	$(check_conda)
-	@bash -c '\
-		$(detect_env) \
-		$(check_env_exists) \
-		echo "🚀 使用環境 \"$$ENV_NAME\" 啟動 $(1)..."; \
-		source $$(conda info --base)/etc/profile.d/conda.sh && \
-		conda activate $$ENV_NAME && \
-		cd $(PWD) && PYTHONPATH=$(PWD) $(2) \
-	'
-endef
+start-services: check-docker
+	@echo "🚀 啟動所有服務..."
+	docker compose up --build -d
+	@echo "✅ 服務已啟動！"
+	@echo "💡 提示："
+	@echo "  - API 服務：http://localhost:8000"
+	@echo "  - UI 界面：http://localhost:8501"
+	@echo "  - Redis：localhost:6379"
+	@echo "  - 使用 'make logs-services' 查看服務日誌"
 
-start-worker:
-	@echo "👷 啟動 Celery worker..."
-	$(check_conda)
-	@bash -c '\
-		$(detect_env) \
-		$(check_env_exists) \
-		echo "🚀 使用環境 \"$$ENV_NAME\" 啟動 worker..."; \
-		source $$(conda info --base)/etc/profile.d/conda.sh && \
-		conda activate $$ENV_NAME && \
-		cd $(PWD) && \
-		PYTHONPATH=$(PWD) python -m celery -A app.tasks worker -l INFO -P solo \
-	'
+stop-services: check-docker
+	@echo "🛑 停止所有服務..."
+	docker compose down
+	@echo "✅ 服務已停止"
 
-start-api:
-	@echo "🚀 啟動 API 服務..."
-	$(check_conda)
-	@bash -c '\
-		$(detect_env) \
-		$(check_env_exists) \
-		echo "🚀 使用環境 \"$$ENV_NAME\" 啟動 API..."; \
-		source $$(conda info --base)/etc/profile.d/conda.sh && \
-		conda activate $$ENV_NAME && \
-		cd $(PWD) && \
-		PYTHONPATH=$(PWD) python -m uvicorn app.api:app --reload --host 0.0.0.0 --port 8000 \
-	'
+restart-services: stop-services start-services
 
-start-ui:
-	@echo "🚀 啟動進度追蹤 UI..."
-	$(check_conda)
-	@bash -c '\
-		$(detect_env) \
-		$(check_env_exists) \
-		echo "🚀 使用環境 \"$$ENV_NAME\" 啟動 UI..."; \
-		source $$(conda info --base)/etc/profile.d/conda.sh && \
-		conda activate $$ENV_NAME && \
-		cd $(PWD) && \
-		PYTHONPATH=$(PWD) python -m streamlit run app/stepper_ui.py \
-	'
+logs-services: check-docker
+	@echo "📋 查看服務日誌..."
+	@echo "提示：按 Ctrl+C 停止查看"
+	@echo "---"
+	docker compose logs -f
+
+logs-service: check-docker
+	@if [ -z "$(service)" ]; then \
+		echo "❌ 請指定服務名稱：make logs-service service=<redis|worker|api|ui>"; \
+		exit 1; \
+	fi
+	@echo "📋 查看 $(service) 服務日誌..."
+	@echo "提示：按 Ctrl+C 停止查看"
+	@echo "---"
+	docker compose logs -f $(service)
 
 # 顯示幫助
 help:
@@ -194,11 +173,12 @@ help:
 	@echo "     make run-local     - 執行訓練（使用預設配置）"
 	@echo "     make logs-local    - 查看最新實驗的訓練進度"
 	@echo ""
-	@echo "  2. 非同步訓練服務（需要開啟四個終端）："
-	@echo "     make start-services - 啟動 Redis 服務（任務佇列）"
-	@echo "     make start-worker   - 啟動 Celery worker（執行訓練）"
-	@echo "     make start-api      - 啟動 FastAPI 服務（接收請求）"
-	@echo "     make start-ui       - 啟動網頁界面（提交任務與查看進度）"
+	@echo "  2. 非同步訓練服務（Docker）："
+	@echo "     make start-services  - 啟動所有服務"
+	@echo "     make stop-services   - 停止所有服務"
+	@echo "     make restart-services - 重啟所有服務"
+	@echo "     make logs-services   - 查看所有服務日誌"
+	@echo "     make logs-service service=<redis|worker|api|ui> - 查看指定服務日誌"
 	@echo ""
 	@echo "📊 實驗管理："
 	@echo "  1. 網頁界面（推薦）："

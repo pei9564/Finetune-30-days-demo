@@ -3,9 +3,8 @@
 """
 
 from typing import Dict, Optional
-
-from ..config import load_config
-from ..train_lora_v2 import main as train_main
+from train_lora_v2 import main as train_main
+from config import load_config
 from . import celery_app
 
 

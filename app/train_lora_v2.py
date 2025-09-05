@@ -13,7 +13,14 @@ import evaluate
 import numpy as np
 import torch
 import yaml
+from data_management import (
+    DataValidator,
+    DataVersionManager,
+    analyze_distribution,
+    get_data_summary,
+)
 from datasets import load_dataset
+from logger_config import setup_progress_logger, setup_system_logger
 from peft import LoraConfig, get_peft_model
 from transformers import (
     AutoModelForSequenceClassification,
@@ -23,14 +30,7 @@ from transformers import (
     TrainingArguments,
 )
 
-from app.config import load_config
-from app.data_management import (
-    DataValidator,
-    DataVersionManager,
-    analyze_distribution,
-    get_data_summary,
-)
-from app.logger_config import setup_progress_logger, setup_system_logger
+from config import load_config
 
 # 全局 logger，會在 setup_experiment_dir 中初始化
 logger: logging.Logger
@@ -308,7 +308,7 @@ def save_experiment_results(exp_dir, config, train_result, eval_result):
         yaml.dump(config_dict, f, allow_unicode=True, sort_keys=False)
 
     # 保存到資料庫
-    from .db import Database, ExperimentRecord
+    from db import Database, ExperimentRecord
 
     db = Database()
     db.save_experiment(

@@ -12,6 +12,40 @@
 
 ---
 
+## 🔄 系統互動流程
+
+```mermaid
+sequenceDiagram
+    participant U as 使用者
+    participant UI as Streamlit UI
+    participant API as FastAPI
+    participant C as Celery Worker
+    participant T as 訓練程式
+    participant DB as SQLite DB
+    participant R as Redis
+
+    U->>UI: 填寫實驗參數並提交
+    UI->>API: POST /train (config_path, experiment_name)
+    API->>C: 提交 Celery 任務
+    C->>R: 任務入隊 (task_id)
+    API-->>UI: 回傳 task_id
+
+    loop 任務輪詢
+        UI->>API: GET /task/{task_id}
+        API->>R: 查詢狀態
+        R-->>API: 返回 PENDING/STARTED
+        API-->>UI: 更新 UI Stepper 狀態
+    end
+
+    C->>T: 執行 train_lora_v2.py
+    T->>DB: 寫入實驗記錄
+    T->>R: 更新任務結果 (SUCCESS)
+    UI->>API: 最後查詢 /task/{task_id}
+    API-->>UI: 返回 SUCCESS + 實驗結果
+```
+
+---
+
 ## 📂 專案結構
 
 ```
@@ -45,6 +79,25 @@
 
 ## 🚀 快速開始
 
+### 環境設置
+
+1. **複製環境變數文件**：
+   ```bash
+   cp .env.example .env
+   ```
+
+2. **編輯環境變數**（可選）：
+   ```bash
+   # 編輯 .env 文件來自定義配置
+   nano .env
+   ```
+
+   主要配置項目：
+   - `REDIS_PORT`: Redis 端口（預設：6379）
+   - `API_PORT`: API 服務端口（預設：8000）
+   - `UI_PORT`: UI 界面端口（預設：8501）
+   - `TZ`: 時區設定（預設：Asia/Taipei）
+
 ### 基本使用
 
 1. **本地直接訓練**：
@@ -54,18 +107,16 @@ make run-local     # 使用預設配置開始訓練
 make logs-local    # 查看最新實驗的訓練進度
 ```
 
-2. **非同步訓練服務**：
+2. **非同步訓練服務（Docker）**：
 ```bash
-# 1. 啟動服務（需要開啟四個終端）
-make start-services  # 啟動 Redis（任務佇列與結果存儲）
-make start-worker   # 啟動 Celery worker
-make start-api      # 啟動 FastAPI 服務
-make start-ui       # 啟動網頁界面
+# 1. 啟動所有服務
+make start-services  # 啟動 Redis、Worker、API、UI 服務
 
 # 2. 使用網頁界面（推薦）
 # 訪問 http://localhost:8501
 # - 提交任務：選擇「提交任務」頁籤，設置參數
 # - 追蹤進度：選擇「追蹤進度」頁籤，輸入 task_id
+# - 實驗記錄：選擇「實驗記錄」頁籤，查看所有實驗
 
 # 3. 或使用 API（進階）
 curl -X POST http://localhost:8000/train \
@@ -76,15 +127,15 @@ curl http://localhost:8000/task/{task_id}  # 查詢任務狀態
 ```
 
 > 💡 **服務說明**：
-> - **Redis (localhost:6379)**：
+> - **Redis (localhost:6379)**：任務佇列與結果存儲
 >   - DB 0：任務佇列（broker）
 >   - DB 1：任務結果（backend）
->   - 預設為記憶體儲存，重啟後清空
 > - **FastAPI (localhost:8000)**：REST API 服務
 > - **Streamlit UI (localhost:8501)**：網頁操作界面
 >   - 支援所有 default.yaml 中的參數配置
 >   - 自動生成臨時配置文件（不納入版控）
 >   - 即時顯示訓練進度（每 2 秒更新）
+>   - 實驗記錄查看與管理
 
 ### 自定義訓練
 
@@ -215,7 +266,8 @@ make data-versions   # 管理資料版本
 ### 環境設置
 - 首次使用請執行 `make setup-conda` 設置環境
 - 使用 `make help` 查看完整的命令說明
-- 非同步訓練需要安裝 Docker（用於運行 Redis）
+- 非同步訓練需要安裝 Docker 和 docker-compose
+- 環境變數配置：複製 `.env.example` 到 `.env` 並根據需要調整
 
 ### 訓練與配置
 - 實驗配置會自動保存，方便追蹤和重現
@@ -223,7 +275,7 @@ make data-versions   # 管理資料版本
 - 訓練結果與同步模式相同，都保存在 `results/` 目錄
 
 ### 非同步服務
-- Redis 資料僅用於任務佇列和狀態追蹤，不保存訓練結果
+- 所有服務通過 Docker Compose 統一管理，使用環境變數配置
 - 網頁界面生成的臨時配置文件（`config/temp_*.yaml`）不會納入版控
 - 建議使用網頁界面操作，API 接口主要用於程式整合
-- 所有服務都需要在 Conda 環境中運行（`lora-m3` 或 `lora-cuda`）
+- 服務端口可通過 `.env` 文件自定義調整

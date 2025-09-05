@@ -6,11 +6,10 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from celery.result import AsyncResult
+from db import Database, ExperimentFilter, ExperimentRecord
 from fastapi import FastAPI, Query
 from pydantic import BaseModel
-
-from .db import Database, ExperimentFilter, ExperimentRecord
-from .tasks.training import train_lora as train_lora_task
+from tasks.training import train_lora as train_lora_task
 
 app = FastAPI(title="LoRA Training API")
 
