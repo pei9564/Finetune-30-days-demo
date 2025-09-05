@@ -1,4 +1,4 @@
-.PHONY: setup-conda run-local logs-local data-analyze data-validate data-versions start-services start-worker start-api start-ui help
+.PHONY: setup-conda run-local logs-local data-analyze data-validate data-versions start-services start-worker start-api start-ui help db-list
 
 # 通用變量
 PYTHON_VERSION := 3.11
@@ -109,6 +109,20 @@ data-versions:
 	@echo "📦 管理資料版本..."
 	$(call run_data_tool,"管理版本","version_manager")
 
+# 查看實驗記錄
+db-list:
+	@echo "📊 查看實驗記錄..."
+	@if [ ! -f "results/experiments.db" ]; then \
+		echo "❌ 資料庫不存在，請先執行訓練"; \
+		exit 1; \
+	fi
+	@sqlite3 results/experiments.db ".mode column" ".headers on" \
+		"SELECT name as '實驗名稱', \
+		datetime(created_at) as '創建時間', \
+		printf('%.2f%%', eval_accuracy * 100) as '準確率', \
+		printf('%.1fs', train_runtime) as '訓練時間' \
+		FROM experiments ORDER BY created_at DESC;"
+
 # 非同步訓練服務
 start-services:
 	@echo "🚀 啟動 Redis 服務..."
@@ -178,7 +192,7 @@ help:
 	@echo "  1. 本地直接訓練："
 	@echo "     make setup-conda   - 首次使用：檢查並創建 Conda 環境"
 	@echo "     make run-local     - 執行訓練（使用預設配置）"
-	@echo "     make logs-local    - 查看訓練進度"
+	@echo "     make logs-local    - 查看最新實驗的訓練進度"
 	@echo ""
 	@echo "  2. 非同步訓練服務（需要開啟四個終端）："
 	@echo "     make start-services - 啟動 Redis 服務（任務佇列）"
@@ -186,17 +200,23 @@ help:
 	@echo "     make start-api      - 啟動 FastAPI 服務（接收請求）"
 	@echo "     make start-ui       - 啟動網頁界面（提交任務與查看進度）"
 	@echo ""
-	@echo "⚙️ 配置方式："
-	@echo "  1. 使用網頁界面（推薦）："
+	@echo "📊 實驗管理："
+	@echo "  1. 網頁界面（推薦）："
 	@echo "     - 訪問 http://localhost:8501"
-	@echo "     - 在表單中設置實驗參數"
-	@echo "     - 提交任務並追蹤進度"
+	@echo "     - 提交任務：選擇「提交任務」頁籤，設置參數"
+	@echo "     - 追蹤進度：選擇「追蹤進度」頁籤，輸入 task_id"
+	@echo "     - 實驗記錄：選擇「實驗記錄」頁籤，查看所有實驗"
 	@echo ""
-	@echo "  2. 使用預設配置："
+	@echo "  2. 命令列工具："
+	@echo "     make db-list       - 查看實驗記錄（表格形式）"
+	@echo "     make logs-local    - 查看最新實驗的訓練進度"
+	@echo ""
+	@echo "⚙️ 配置管理："
+	@echo "  1. 使用預設配置："
 	@echo "     - 編輯 config/default.yaml"
 	@echo "     - 包含所有可調整的參數"
 	@echo ""
-	@echo "  3. 使用命令列（僅用於本地訓練）："
+	@echo "  2. 使用命令列參數（僅用於本地訓練）："
 	@echo "     PYTHONPATH=$(PWD) python app/train_lora_v2.py [參數]"
 	@echo ""
 	@echo "     常用參數："
@@ -205,20 +225,6 @@ help:
 	@echo "     --epochs INT              訓練輪數"
 	@echo "     --train_samples INT       訓練樣本數"
 	@echo "     --device TEXT             指定設備 (cuda/mps/cpu)"
-	@echo ""
-	@echo "📊 實驗記錄："
-	@echo "  1. 實驗目錄結構："
-	@echo "     每次訓練（無論本地或非同步）都會創建獨立目錄："
-	@echo "     results/{實驗名稱}_{時間戳}/"
-	@echo "     ├── logs.txt           - 系統日誌與訓練進度"
-	@echo "     ├── config.yaml        - 本次實驗的完整配置"
-	@echo "     ├── metrics.json       - 訓練結果與評估指標"
-	@echo "     └── artifacts/         - 模型與其他產出"
-	@echo "         └── final_model/   - 訓練完成的模型"
-	@echo ""
-	@echo "  2. 查看方式："
-	@echo "     - 本地訓練：使用 make logs-local"
-	@echo "     - 非同步訓練：使用網頁界面"
 	@echo ""
 	@echo "🔧 資料管理工具（僅供開發測試用）："
 	@echo "  註：這些命令會使用預設的 SST-2 範例資料集"

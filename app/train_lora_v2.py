@@ -307,7 +307,23 @@ def save_experiment_results(exp_dir, config, train_result, eval_result):
     with open(config_file, "w", encoding="utf-8") as f:
         yaml.dump(config_dict, f, allow_unicode=True, sort_keys=False)
 
-    logger.info(f"✅ 實驗結果已保存到 {exp_dir}")
+    # 保存到資料庫
+    from .db import Database, ExperimentRecord
+
+    db = Database()
+    db.save_experiment(
+        ExperimentRecord(
+            id=exp_dir.name,  # 使用實驗目錄名稱作為 ID
+            name=config.experiment_name,
+            created_at=datetime.fromisoformat(metrics["timestamp"]),
+            config_path=str(config_file),
+            train_runtime=metrics["train"]["runtime"],
+            eval_accuracy=metrics["eval"]["accuracy"],
+            log_path=str(exp_dir / "logs.txt"),
+        )
+    )
+
+    logger.info(f"✅ 實驗結果已保存到 {exp_dir} 和資料庫")
 
 
 def setup_experiment_dir(config):

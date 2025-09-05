@@ -316,12 +316,166 @@ def render_task_form():
                 st.session_state.last_task_id = task_id
 
 
+def render_experiment_list():
+    """渲染實驗列表"""
+    # 標題列與重新整理按鈕並排
+    col1, col2 = st.columns([0.9, 0.1])
+    with col1:
+        st.markdown("### 實驗記錄")
+    with col2:
+        if st.button("🔄", help="重新整理資料"):
+            st.rerun()
+
+    # 篩選條件
+    with st.expander("篩選條件", expanded=False):
+        col1, col2 = st.columns(2)
+        with col1:
+            name_filter = st.text_input("實驗名稱", help="支援模糊搜尋")
+            min_accuracy = st.slider(
+                "最低準確率",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.0,
+                step=0.05,
+                help="篩選達到特定準確率的實驗",
+            )
+        with col2:
+            max_runtime = st.number_input(
+                "最長訓練時間（秒）",
+                min_value=0,
+                value=0,
+                help="篩選在特定時間內完成的實驗",
+            )
+            sort_by = st.selectbox(
+                "排序依據",
+                options=["created_at", "name", "train_runtime", "eval_accuracy"],
+                format_func=lambda x: {
+                    "created_at": "創建時間",
+                    "name": "實驗名稱",
+                    "train_runtime": "訓練時間",
+                    "eval_accuracy": "驗證準確率",
+                }[x],
+            )
+        desc = st.checkbox("降序排序", value=True)
+
+    # 發送請求
+    try:
+        params = {
+            "sort_by": sort_by,
+            "desc": desc,
+            "limit": 100,
+        }
+        if name_filter:
+            params["name"] = name_filter
+        if min_accuracy > 0:
+            params["min_accuracy"] = min_accuracy
+        if max_runtime > 0:
+            params["max_runtime"] = max_runtime
+
+        response = requests.get("http://localhost:8000/experiments", params=params)
+        experiments = response.json()
+
+        # 顯示統計資訊
+        stats_response = requests.get("http://localhost:8000/experiments/stats")
+        stats = stats_response.json()
+
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("總實驗數", stats["total_experiments"])
+        with col2:
+            st.metric("平均準確率", f"{stats['avg_accuracy']:.2%}")
+        with col3:
+            st.metric("最佳準確率", f"{stats['best_accuracy']:.2%}")
+        with col4:
+            st.metric("最短訓練時間", f"{stats['min_runtime']:.1f}s")
+
+        # 顯示實驗列表
+        st.markdown("#### 實驗列表")
+        if not experiments:
+            st.info("沒有找到符合條件的實驗")
+            return
+
+        # 創建實驗表格
+        data = []
+        for exp in experiments:
+            data.append(
+                {
+                    "實驗名稱": exp["name"],
+                    "創建時間": datetime.fromisoformat(exp["created_at"]).strftime(
+                        "%Y-%m-%d %H:%M"
+                    ),
+                    "訓練時間": f"{exp['train_runtime']:.1f}s",
+                    "準確率": f"{exp['eval_accuracy']:.2%}",
+                    "ID": exp["id"],
+                }
+            )
+
+        # 顯示表格並獲取選中的行
+        selected_indices = st.data_editor(
+            data,
+            column_config={
+                "ID": st.column_config.TextColumn(
+                    "ID",
+                    help="點擊查看詳細資訊",
+                    width="medium",
+                ),
+            },
+            hide_index=True,
+        )
+
+    except Exception as e:
+        st.error(f"載入實驗記錄失敗：{e}")
+
+
+def render_task_progress():
+    """渲染任務進度"""
+    # 如果有最新提交的任務 ID，自動填入
+    default_task_id = st.session_state.get("last_task_id", "")
+
+    # 輸入任務 ID
+    task_id = st.text_input("請輸入任務 ID", value=default_task_id)
+    check_status = st.button("查詢狀態")
+
+    # 如果有輸入 ID 且點擊查詢
+    if task_id and check_status:
+        status_placeholder = st.empty()
+
+        while True:
+            # 查詢狀態
+            result = get_task_status(task_id)
+            if not result:
+                break
+
+            # 清空佔位元件並顯示新狀態
+            with status_placeholder:
+                st.markdown("---")
+                st.markdown(f"**任務狀態**：{result['status']}")
+                render_stepper(result["status"])
+
+                # 如果有結果，顯示
+                if "result" in result:
+                    st.markdown("---")
+                    st.markdown("**訓練結果**：")
+                    st.json(result["result"])
+                # 如果有錯誤，顯示
+                elif "error" in result:
+                    st.markdown("---")
+                    st.error(f"錯誤信息：{result['error']}")
+
+            # 如果任務完成或失敗，停止輪詢
+            if result["status"] in ["SUCCESS", "FAILURE"]:
+                break
+
+            # 等待 2 秒後再次查詢
+            time.sleep(2)
+
+
 def main():
     """主函數"""
     st.title("LoRA 訓練任務管理")
 
     # 添加頁籤
-    tab1, tab2 = st.tabs(["提交任務", "追蹤進度"])
+    tab1, tab2, tab3 = st.tabs(["提交任務", "追蹤進度", "實驗記錄"])
 
     # 提交任務頁籤
     with tab1:
@@ -329,45 +483,11 @@ def main():
 
     # 追蹤進度頁籤
     with tab2:
-        # 如果有最新提交的任務 ID，自動填入
-        default_task_id = st.session_state.get("last_task_id", "")
+        render_task_progress()
 
-        # 輸入任務 ID
-        task_id = st.text_input("請輸入任務 ID", value=default_task_id)
-        check_status = st.button("查詢狀態")
-
-        # 如果有輸入 ID 且點擊查詢
-        if task_id and check_status:
-            status_placeholder = st.empty()
-
-            while True:
-                # 查詢狀態
-                result = get_task_status(task_id)
-                if not result:
-                    break
-
-                # 清空佔位元件並顯示新狀態
-                with status_placeholder:
-                    st.markdown("---")
-                    st.markdown(f"**任務狀態**：{result['status']}")
-                    render_stepper(result["status"])
-
-                    # 如果有結果，顯示
-                    if "result" in result:
-                        st.markdown("---")
-                        st.markdown("**訓練結果**：")
-                        st.json(result["result"])
-                    # 如果有錯誤，顯示
-                    elif "error" in result:
-                        st.markdown("---")
-                        st.error(f"錯誤信息：{result['error']}")
-
-                # 如果任務完成或失敗，停止輪詢
-                if result["status"] in ["SUCCESS", "FAILURE"]:
-                    break
-
-                # 等待 2 秒後再次查詢
-                time.sleep(2)
+    # 實驗記錄頁籤
+    with tab3:
+        render_experiment_list()
 
 
 if __name__ == "__main__":

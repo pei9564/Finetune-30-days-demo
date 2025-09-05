@@ -125,10 +125,13 @@ lora:
 
 ## 📊 實驗記錄
 
+### 檔案系統記錄
+
 每次訓練會自動創建實驗專屬目錄：`results/{實驗名稱}_{時間戳}/`
 
 ```
 results/
+├── experiments.db        # SQLite 資料庫，用於實驗追蹤
 └── experiment_name_20240101_120000/
     ├── logs.txt           # 系統日誌與訓練進度
     ├── config.yaml        # 本次實驗的完整配置
@@ -141,6 +144,46 @@ results/
 - **訓練進度**：記錄每個步驟的損失值、學習率、評估指標等
 - **實驗配置**：包含所有參數設定，確保實驗可重現
 - **評估指標**：保存最終的訓練時間、準確率等結果
+
+### 實驗追蹤
+
+提供多種方式查看實驗記錄：
+
+1. **網頁界面**（推薦）：
+   - 訪問 http://localhost:8501
+   - 切換到「實驗記錄」頁籤
+   - 支援篩選、排序、統計功能
+   - 即時更新實驗狀態
+
+2. **命令列工具**：
+   ```bash
+   # 查看實驗記錄（表格形式）
+   make db-list
+   
+   # 查看最新實驗的訓練進度
+   make logs-local
+   ```
+
+3. **REST API**：
+   ```bash
+   # 列出所有實驗（支援篩選和排序）
+   curl "http://localhost:8000/experiments?min_accuracy=0.8&sort_by=eval_accuracy&desc=true"
+
+   # 查詢單一實驗
+   curl http://localhost:8000/experiments/{experiment_id}
+
+   # 獲取實驗統計
+   curl http://localhost:8000/experiments/stats
+   ```
+
+   支援的篩選條件：
+   - `name`：實驗名稱（模糊匹配）
+   - `min_accuracy`：最低準確率
+   - `max_runtime`：最長訓練時間
+   - `start_date`/`end_date`：時間範圍
+   - `sort_by`：排序欄位（created_at/name/train_runtime/eval_accuracy）
+   - `desc`：是否降序排序
+   - `limit`：返回數量限制
 
 ---
 
