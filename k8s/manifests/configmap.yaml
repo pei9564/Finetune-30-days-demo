@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lora-config
+  namespace: lora-system
+  labels:
+    app: finetune-platform
+data:
+  # Celery settings
+  CELERY_BROKER_URL: "redis://redis:6379/0"
+  CELERY_RESULT_BACKEND: "redis://redis:6379/1"
+  
+  # API settings
+  API_URL: "http://api:8000"
+  API_HOST: "0.0.0.0"
+  API_PORT: "8000"
+  
+  # Redis settings
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  REDIS_URL: "redis://redis:6379"
+  
+  # UI settings
+  UI_PORT: "8501"
+  
+  # Python settings
+  PYTHONPATH: "/app"
+  PYTHONUNBUFFERED: "1"
+  
+  # Timezone
+  TZ: "Asia/Taipei"

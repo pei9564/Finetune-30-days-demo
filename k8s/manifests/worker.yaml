@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: lora-system
+  labels:
+    app: worker
+    component: celery
+spec:
+  replicas: 2  # 可以調整副本數量
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+        component: celery
+    spec:
+      containers:
+      - name: worker
+        image: finetune-app:latest  # 統一映像
+        imagePullPolicy: Never  # 使用本地映像
+        command: ["python", "-m", "celery", "-A", "tasks", "worker", "--loglevel=info", "-P", "solo"]
+        env:
+        - name: CELERY_BROKER_URL
+          valueFrom:
+            configMapKeyRef:
+              name: lora-config
+              key: CELERY_BROKER_URL
+        - name: CELERY_RESULT_BACKEND
+          valueFrom:
+            configMapKeyRef:
+              name: lora-config
+              key: CELERY_RESULT_BACKEND
+        - name: TZ
+          valueFrom:
+            configMapKeyRef:
+              name: lora-config
+              key: TZ
+        - name: PYTHONPATH
+          valueFrom:
+            configMapKeyRef:
+              name: lora-config
+              key: PYTHONPATH
+        - name: PYTHONUNBUFFERED
+          valueFrom:
+            configMapKeyRef:
+              name: lora-config
+              key: PYTHONUNBUFFERED
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 1
+            memory: 1Gi
+        volumeMounts:
+        - name: results-storage
+          mountPath: /app/results
+        livenessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import celery; print('Celery worker is alive')"
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import celery; print('Celery worker is ready')"
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: results-storage
+        persistentVolumeClaim:
+          claimName: results-pvc
+      - name: config-storage
+        persistentVolumeClaim:
+          claimName: results-pvc
+      restartPolicy: Always

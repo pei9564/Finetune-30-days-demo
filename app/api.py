@@ -3,7 +3,7 @@ FastAPI 應用
 """
 
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from celery.result import AsyncResult
 from db import Database, ExperimentFilter, ExperimentRecord
@@ -14,15 +14,21 @@ from tasks.training import train_lora as train_lora_task
 app = FastAPI(title="LoRA Training API")
 
 
+class TrainingConfig(BaseModel):
+    """完整訓練配置模型"""
+
+    experiment_name: str
+    model: Dict[str, Any]  # 模型配置
+    data: Dict[str, Any]  # 數據配置
+    training: Dict[str, Any]  # 訓練配置
+    lora: Dict[str, Any]  # LoRA 配置
+    system: Dict[str, Any]  # 系統配置
+
+
 class TrainingRequest(BaseModel):
     """訓練請求模型"""
 
-    config_path: str = "config/default.yaml"
-    experiment_name: Optional[str] = None
-    learning_rate: Optional[float] = None
-    epochs: Optional[int] = None
-    train_samples: Optional[int] = None
-    device: Optional[str] = None
+    config: TrainingConfig
 
 
 @app.post("/train")
@@ -30,20 +36,13 @@ async def start_training(request: TrainingRequest) -> Dict[str, str]:
     """提交訓練任務
 
     Args:
-        request: 訓練請求
+        request: 包含完整訓練配置的請求
 
     Returns:
         Dict[str, str]: 包含任務 ID 的字典
     """
     # 提交任務
-    task = train_lora_task.delay(
-        config_path=request.config_path,
-        experiment_name=request.experiment_name,
-        learning_rate=request.learning_rate,
-        epochs=request.epochs,
-        train_samples=request.train_samples,
-        device=request.device,
-    )
+    task = train_lora_task.delay(config=request.config.dict())
 
     return {"task_id": task.id}
 

@@ -1,0 +1,115 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: lora-system
+  labels:
+    app: api
+    component: fastapi
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+        component: fastapi
+    spec:
+      containers:
+      - name: api
+        image: finetune-app:latest  # 統一映像
+        imagePullPolicy: Never  # 使用本地映像
+        command: ["python", "-m", "uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        env:
+        - name: CELERY_BROKER_URL
+          valueFrom:
+            configMapKeyRef:
+              name: lora-config
+              key: CELERY_BROKER_URL
+        - name: CELERY_RESULT_BACKEND
+          valueFrom:
+            configMapKeyRef:
+              name: lora-config
+              key: CELERY_RESULT_BACKEND
+        - name: REDIS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: lora-config
+              key: REDIS_URL
+        - name: API_URL
+          valueFrom:
+            configMapKeyRef:
+              name: lora-config
+              key: API_URL
+        - name: TZ
+          valueFrom:
+            configMapKeyRef:
+              name: lora-config
+              key: TZ
+        - name: PYTHONPATH
+          valueFrom:
+            configMapKeyRef:
+              name: lora-config
+              key: PYTHONPATH
+        - name: PYTHONUNBUFFERED
+          valueFrom:
+            configMapKeyRef:
+              name: lora-config
+              key: PYTHONUNBUFFERED
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 1
+            memory: 1Gi
+        volumeMounts:
+        - name: results-storage
+          mountPath: /app/results
+        livenessProbe:
+          httpGet:
+            path: /docs
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /docs
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      volumes:
+      - name: results-storage
+        persistentVolumeClaim:
+          claimName: results-pvc
+      restartPolicy: Always
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: lora-system
+  labels:
+    app: api
+    component: fastapi
+spec:
+  type: NodePort
+  ports:
+  - port: 8000
+    targetPort: 8000
+    nodePort: 30080  # 外部訪問端口
+    protocol: TCP
+    name: http
+  selector:
+    app: api

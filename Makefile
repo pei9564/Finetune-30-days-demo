@@ -1,4 +1,4 @@
-.PHONY: setup-conda run-local logs-local data-analyze data-validate data-versions start-services stop-services restart-services logs-services logs-service help db-list check-docker
+.PHONY: setup-conda run-local logs-local data-analyze data-validate data-versions start-services stop-services restart-services logs-services logs-service help db-list check-docker k8s-setup k8s-build k8s-build-fast k8s-deploy k8s-verify k8s-cleanup k8s-status k8s-logs k8s-restart k8s-scale k8s-quick-deploy k8s-full-cleanup
 
 # 通用變量
 PYTHON_VERSION := 3.11
@@ -213,3 +213,92 @@ help:
 	@echo "  make data-analyze   - 分析資料集分布"
 	@echo "  make data-validate  - 驗證資料集品質"
 	@echo "  make data-versions  - 管理資料版本"
+	@echo ""
+	@echo "☸️  Kubernetes 部署（minikube）："
+	@echo "  1. 快速開始："
+	@echo "     make k8s-quick-deploy  - 一鍵部署（建構+部署）"
+	@echo "     make k8s-setup         - 安裝並啟動 minikube"
+	@echo "     make k8s-build         - 建構 Docker 映像"
+	@echo "     make k8s-build-fast    - 快速建構（輕量版）"
+	@echo "     make k8s-deploy        - 部署到 Kubernetes"
+	@echo ""
+	@echo "  2. 管理操作："
+	@echo "     make k8s-status        - 查看部署狀態"
+	@echo "     make k8s-logs          - 查看服務日誌"
+	@echo "     make k8s-restart       - 重啟服務"
+	@echo "     make k8s-scale         - 擴展服務"
+	@echo "     make k8s-verify        - 驗證部署"
+	@echo "     make k8s-cleanup       - 清理資源"
+	@echo "     make k8s-full-cleanup  - 完全清理（包含映像）"
+	@echo ""
+	@echo "  3. 訪問服務："
+	@echo "     - API：http://localhost:8000"
+	@echo "     - UI：http://localhost:8501"
+	@echo "     - Redis：redis:6379（集群內）"
+
+# =============================================================================
+# Kubernetes 部署管理（minikube）
+# =============================================================================
+
+# 安裝並啟動 minikube
+k8s-setup:
+	@echo "☸️  設置 minikube 環境..."
+	@if ! command -v minikube &> /dev/null; then \
+		echo "📦 安裝 minikube..."; \
+		if [[ "$$(uname -m)" == "arm64" ]]; then \
+			curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-darwin-arm64; \
+			sudo install minikube-darwin-arm64 /usr/local/bin/minikube; \
+		else \
+			curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-darwin-amd64; \
+			sudo install minikube-darwin-amd64 /usr/local/bin/minikube; \
+		fi; \
+		rm -f minikube-darwin-*; \
+	fi
+	@echo "🚀 啟動 minikube..."
+	@minikube start --driver=docker --memory=4096 --cpus=2
+	@echo "✅ minikube 已啟動！"
+	@echo "💡 提示：使用 'minikube dashboard' 開啟 Kubernetes 儀表板"
+
+# 建構 Docker 映像
+k8s-build:
+	@./k8s/k8s.sh build
+
+# 快速建構（輕量版）
+k8s-build-fast:
+	@./k8s/k8s.sh build-fast
+
+# 部署到 Kubernetes
+k8s-deploy:
+	@./k8s/k8s.sh deploy
+
+# 一鍵部署
+k8s-quick-deploy: k8s-setup k8s-build-fast k8s-deploy
+	@echo "🎉 一鍵部署完成！"
+
+# 查看部署狀態
+k8s-status:
+	@./k8s/k8s.sh status
+
+# 查看服務日誌
+k8s-logs:
+	@./k8s/k8s.sh logs $(service)
+
+# 重啟服務
+k8s-restart:
+	@./k8s/k8s.sh restart
+
+# 擴展服務
+k8s-scale:
+	@./k8s/k8s.sh scale $(replicas)
+
+# 驗證部署
+k8s-verify:
+	@./k8s/k8s.sh verify
+
+# 清理資源
+k8s-cleanup:
+	@./k8s/k8s.sh cleanup
+
+# 完全清理
+k8s-full-cleanup:
+	@./k8s/k8s.sh full-cleanup

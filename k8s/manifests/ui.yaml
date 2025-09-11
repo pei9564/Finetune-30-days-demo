@@ -1,0 +1,105 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ui
+  namespace: lora-system
+  labels:
+    app: ui
+    component: streamlit
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ui
+  template:
+    metadata:
+      labels:
+        app: ui
+        component: streamlit
+    spec:
+      containers:
+      - name: ui
+        image: finetune-app:latest  # 統一映像
+        imagePullPolicy: Never  # 使用本地映像
+        command: ["python", "-m", "streamlit", "run", "stepper_ui.py"]
+        ports:
+        - containerPort: 8501
+          name: http
+          protocol: TCP
+        env:
+        - name: API_URL
+          valueFrom:
+            configMapKeyRef:
+              name: lora-config
+              key: API_URL
+        - name: REDIS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: lora-config
+              key: REDIS_URL
+        - name: TZ
+          valueFrom:
+            configMapKeyRef:
+              name: lora-config
+              key: TZ
+        - name: PYTHONPATH
+          valueFrom:
+            configMapKeyRef:
+              name: lora-config
+              key: PYTHONPATH
+        - name: PYTHONUNBUFFERED
+          valueFrom:
+            configMapKeyRef:
+              name: lora-config
+              key: PYTHONUNBUFFERED
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 1
+            memory: 1Gi
+        volumeMounts:
+        - name: results-storage
+          mountPath: /app/results
+        livenessProbe:
+          httpGet:
+            path: /_stcore/health
+            port: 8501
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /_stcore/health
+            port: 8501
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      volumes:
+      - name: results-storage
+        persistentVolumeClaim:
+          claimName: results-pvc
+      restartPolicy: Always
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ui
+  namespace: lora-system
+  labels:
+    app: ui
+    component: streamlit
+spec:
+  type: NodePort
+  ports:
+  - port: 8501
+    targetPort: 8501
+    nodePort: 30501  # 外部訪問端口
+    protocol: TCP
+    name: http
+  selector:
+    app: ui

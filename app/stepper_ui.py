@@ -161,19 +161,10 @@ def submit_training_task(
         if device and device != "auto":
             config["training"]["device"] = device
 
-        # 保存臨時配置文件（使用時間戳避免衝突）
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        config_path = f"config/temp_{experiment_name}_{timestamp}.yaml"
-        with open(config_path, "w", encoding="utf-8") as f:
-            yaml.dump(config, f, allow_unicode=True)
-
         # 提交任務
         response = requests.post(
             f"{API_URL}/train",
-            json={
-                "config_path": config_path,
-                "experiment_name": experiment_name,
-            },
+            json={"config": config},
         )
         result = response.json()
         return result.get("task_id")
