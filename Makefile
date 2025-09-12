@@ -1,6 +1,14 @@
-.PHONY: setup-conda run-local logs-local data-analyze data-validate data-versions start-services stop-services restart-services logs-services logs-service help db-list check-docker k8s-setup k8s-build k8s-build-fast k8s-deploy k8s-verify k8s-cleanup k8s-status k8s-logs k8s-restart k8s-scale k8s-quick-deploy k8s-full-cleanup
+.PHONY: setup-conda run-local logs-local analyze-metrics analyze-by-model analyze-by-dataset \
+        data-analyze data-validate data-versions db-list \
+        start-services stop-services restart-services logs-services logs-service \
+        k8s-setup k8s-build k8s-build-fast k8s-deploy k8s-verify k8s-cleanup \
+        k8s-status k8s-logs k8s-restart k8s-scale k8s-quick-deploy k8s-full-cleanup \
+        help check-docker
 
-# 通用變量
+# ==============================================================================
+# 通用變量和函數
+# ==============================================================================
+
 PYTHON_VERSION := 3.11
 PYTHONPATH := $(PWD)
 
@@ -35,6 +43,10 @@ define check_env_exists
 	fi;
 endef
 
+# ==============================================================================
+# 本地訓練相關命令
+# ==============================================================================
+
 # 本地 Conda 環境設置
 setup-conda:
 	@echo "🔍 檢測系統環境..."
@@ -66,7 +78,7 @@ run-local:
 		echo "🚀 使用環境 \"$$ENV_NAME\" 開始訓練..."; \
 		source $$(conda info --base)/etc/profile.d/conda.sh && \
 		conda activate $$ENV_NAME && \
-		cd $(PWD) && PYTHONPATH=$(PWD) python -u app/train_lora_v2.py \
+		cd $(PWD) && PYTHONPATH=$(PWD) python -u app/train_lora_v2.py $(ARGS) \
 	'
 
 # 查看最新實驗的訓練日誌
@@ -84,6 +96,47 @@ logs-local:
 		echo "❌ 沒有找到實驗日誌，請先運行 'make run-local'"; \
 	fi
 
+# ==============================================================================
+# 實驗分析相關命令
+# ==============================================================================
+
+# 分析實驗效能
+analyze-metrics:
+	@echo "📊 分析實驗效能..."
+	@bash -c '\
+		$(detect_env) \
+		$(check_env_exists) \
+		source $$(conda info --base)/etc/profile.d/conda.sh && \
+		conda activate $$ENV_NAME && \
+		cd $(PWD) && PYTHONPATH=$(PWD) python -m app.tools.analyze_metrics $(ARGS) \
+	'
+
+# 按模型分析效能
+analyze-by-model:
+	@echo "📊 按模型分析效能..."
+	@bash -c '\
+		$(detect_env) \
+		$(check_env_exists) \
+		source $$(conda info --base)/etc/profile.d/conda.sh && \
+		conda activate $$ENV_NAME && \
+		cd $(PWD) && PYTHONPATH=$(PWD) python -m app.tools.analyze_metrics --group-by model_name \
+	'
+
+# 按資料集分析效能
+analyze-by-dataset:
+	@echo "📊 按資料集分析效能..."
+	@bash -c '\
+		$(detect_env) \
+		$(check_env_exists) \
+		source $$(conda info --base)/etc/profile.d/conda.sh && \
+		conda activate $$ENV_NAME && \
+		cd $(PWD) && PYTHONPATH=$(PWD) python -m app.tools.analyze_metrics --group-by dataset_name \
+	'
+
+# ==============================================================================
+# 資料管理相關命令
+# ==============================================================================
+
 # 資料管理工具（僅用於測試範例）
 define run_data_tool
 	$(check_conda)
@@ -97,14 +150,17 @@ define run_data_tool
 	'
 endef
 
+# 分析資料集分布
 data-analyze:
 	@echo "📊 分析資料集分布..."
 	$(call run_data_tool,"分析資料","dataset_analyzer")
 
+# 驗證資料集品質
 data-validate:
 	@echo "🔍 驗證資料集品質..."
 	$(call run_data_tool,"驗證資料","data_validator")
 
+# 管理資料版本
 data-versions:
 	@echo "📦 管理資料版本..."
 	$(call run_data_tool,"管理版本","version_manager")
@@ -123,13 +179,18 @@ db-list:
 		printf('%.1fs', train_runtime) as '訓練時間' \
 		FROM experiments ORDER BY created_at DESC;"
 
-# Docker 服務管理
+# ==============================================================================
+# Docker 服務相關命令
+# ==============================================================================
+
+# 檢查 Docker 環境
 check-docker:
 	@if ! command -v docker-compose &> /dev/null; then \
 		echo "❌ docker-compose 未安裝"; \
 		exit 1; \
 	fi
 
+# 啟動所有服務
 start-services: check-docker
 	@echo "🚀 啟動所有服務..."
 	docker compose up --build -d
@@ -140,19 +201,23 @@ start-services: check-docker
 	@echo "  - Redis：localhost:6379"
 	@echo "  - 使用 'make logs-services' 查看服務日誌"
 
+# 停止所有服務
 stop-services: check-docker
 	@echo "🛑 停止所有服務..."
 	docker compose down
 	@echo "✅ 服務已停止"
 
+# 重啟所有服務
 restart-services: stop-services start-services
 
+# 查看所有服務日誌
 logs-services: check-docker
 	@echo "📋 查看服務日誌..."
 	@echo "提示：按 Ctrl+C 停止查看"
 	@echo "---"
 	docker compose logs -f
 
+# 查看指定服務日誌
 logs-service: check-docker
 	@if [ -z "$(service)" ]; then \
 		echo "❌ 請指定服務名稱：make logs-service service=<redis|worker|api|ui>"; \
@@ -163,82 +228,9 @@ logs-service: check-docker
 	@echo "---"
 	docker compose logs -f $(service)
 
-# 顯示幫助
-help:
-	@echo "🍎 LoRA 訓練環境管理命令"
-	@echo ""
-	@echo "🚀 訓練模式："
-	@echo "  1. 本地直接訓練："
-	@echo "     make setup-conda   - 首次使用：檢查並創建 Conda 環境"
-	@echo "     make run-local     - 執行訓練（使用預設配置）"
-	@echo "     make logs-local    - 查看最新實驗的訓練進度"
-	@echo ""
-	@echo "  2. 非同步訓練服務（Docker）："
-	@echo "     make start-services  - 啟動所有服務"
-	@echo "     make stop-services   - 停止所有服務"
-	@echo "     make restart-services - 重啟所有服務"
-	@echo "     make logs-services   - 查看所有服務日誌"
-	@echo "     make logs-service service=<redis|worker|api|ui> - 查看指定服務日誌"
-	@echo ""
-	@echo "📊 實驗管理："
-	@echo "  1. 網頁界面（推薦）："
-	@echo "     - 訪問 http://localhost:8501"
-	@echo "     - 提交任務：選擇「提交任務」頁籤，設置參數"
-	@echo "     - 追蹤進度：選擇「追蹤進度」頁籤，輸入 task_id"
-	@echo "     - 實驗記錄：選擇「實驗記錄」頁籤，查看所有實驗"
-	@echo ""
-	@echo "  2. 命令列工具："
-	@echo "     make db-list       - 查看實驗記錄（表格形式）"
-	@echo "     make logs-local    - 查看最新實驗的訓練進度"
-	@echo ""
-	@echo "⚙️ 配置管理："
-	@echo "  1. 使用預設配置："
-	@echo "     - 編輯 config/default.yaml"
-	@echo "     - 包含所有可調整的參數"
-	@echo ""
-	@echo "  2. 使用命令列參數（僅用於本地訓練）："
-	@echo "     PYTHONPATH=$(PWD) python app/train_lora_v2.py [參數]"
-	@echo ""
-	@echo "     常用參數："
-	@echo "     --experiment_name TEXT    實驗名稱"
-	@echo "     --learning_rate FLOAT     學習率"
-	@echo "     --epochs INT              訓練輪數"
-	@echo "     --train_samples INT       訓練樣本數"
-	@echo "     --device TEXT             指定設備 (cuda/mps/cpu)"
-	@echo ""
-	@echo "🔧 資料管理工具（僅供開發測試用）："
-	@echo "  註：這些命令會使用預設的 SST-2 範例資料集"
-	@echo "  實際訓練時的資料管理已整合在訓練流程中"
-	@echo ""
-	@echo "  make data-analyze   - 分析資料集分布"
-	@echo "  make data-validate  - 驗證資料集品質"
-	@echo "  make data-versions  - 管理資料版本"
-	@echo ""
-	@echo "☸️  Kubernetes 部署（minikube）："
-	@echo "  1. 快速開始："
-	@echo "     make k8s-quick-deploy  - 一鍵部署（建構+部署）"
-	@echo "     make k8s-setup         - 安裝並啟動 minikube"
-	@echo "     make k8s-build         - 建構 Docker 映像"
-	@echo "     make k8s-build-fast    - 快速建構（輕量版）"
-	@echo "     make k8s-deploy        - 部署到 Kubernetes"
-	@echo ""
-	@echo "  2. 管理操作："
-	@echo "     make k8s-status        - 查看部署狀態"
-	@echo "     make k8s-logs          - 查看服務日誌"
-	@echo "     make k8s-restart       - 重啟服務"
-	@echo "     make k8s-scale         - 擴展服務"
-	@echo "     make k8s-verify        - 驗證部署"
-	@echo "     make k8s-cleanup       - 清理資源"
-	@echo "     make k8s-full-cleanup  - 完全清理（包含映像）"
-	@echo ""
-	@echo "  3. 訪問服務："
-	@echo "     - API：http://localhost:8000"
-	@echo "     - UI：http://localhost:8501"
-	@echo "     - Redis：redis:6379（集群內）"
-
-# =============================================================================
-# Kubernetes 部署管理（minikube）
-# =============================================================================
+# ==============================================================================
+# Kubernetes 部署相關命令
+# ==============================================================================
 
 # 安裝並啟動 minikube
 k8s-setup:
@@ -302,3 +294,77 @@ k8s-cleanup:
 # 完全清理
 k8s-full-cleanup:
 	@./k8s/k8s.sh full-cleanup
+
+# ==============================================================================
+# 幫助信息
+# ==============================================================================
+
+help:
+	@echo "🍎 LoRA 訓練環境管理命令"
+	@echo ""
+	@echo "🚀 訓練模式："
+	@echo "  1. 本地直接訓練："
+	@echo "     make setup-conda   - 首次使用：檢查並創建 Conda 環境"
+	@echo "     make run-local     - 執行訓練（使用預設配置）"
+	@echo "     make logs-local    - 查看最新實驗的訓練進度"
+	@echo ""
+	@echo "  2. 非同步訓練服務（Docker）："
+	@echo "     make start-services  - 啟動所有服務"
+	@echo "     make stop-services   - 停止所有服務"
+	@echo "     make restart-services - 重啟所有服務"
+	@echo "     make logs-services   - 查看所有服務日誌"
+	@echo "     make logs-service service=<redis|worker|api|ui> - 查看指定服務日誌"
+	@echo ""
+	@echo "📊 實驗管理："
+	@echo "  1. 網頁界面（推薦）："
+	@echo "     - 訪問 http://localhost:8501"
+	@echo "     - 提交任務：選擇「提交任務」頁籤，設置參數"
+	@echo "     - 追蹤進度：選擇「追蹤進度」頁籤，輸入 task_id"
+	@echo "     - 實驗記錄：選擇「實驗記錄」頁籤，查看所有實驗"
+	@echo ""
+	@echo "  2. 命令列工具："
+	@echo "     make db-list       - 查看實驗記錄（表格形式）"
+	@echo "     make logs-local    - 查看最新實驗的訓練進度"
+	@echo "     make analyze-metrics - 分析實驗效能"
+	@echo "     make analyze-by-model - 按模型分析效能"
+	@echo "     make analyze-by-dataset - 按資料集分析效能"
+	@echo ""
+	@echo "⚙️ 配置管理："
+	@echo "  1. 使用預設配置："
+	@echo "     - 編輯 config/default.yaml"
+	@echo "     - 包含所有可調整的參數"
+	@echo ""
+	@echo "  2. 使用命令列參數（僅用於本地訓練）："
+	@echo "     PYTHONPATH=$(PWD) python app/train_lora_v2.py [參數]"
+	@echo ""
+	@echo "     常用參數："
+	@echo "     --experiment_name TEXT    實驗名稱"
+	@echo "     --learning_rate FLOAT     學習率"
+	@echo "     --epochs INT              訓練輪數"
+	@echo "     --train_samples INT       訓練樣本數"
+	@echo "     --device TEXT             指定設備 (cuda/mps/cpu)"
+	@echo ""
+	@echo "🔧 資料管理工具（僅供開發測試用）："
+	@echo "  註：這些命令會使用預設的 SST-2 範例資料集"
+	@echo "  實際訓練時的資料管理已整合在訓練流程中"
+	@echo ""
+	@echo "  make data-analyze   - 分析資料集分布"
+	@echo "  make data-validate  - 驗證資料集品質"
+	@echo "  make data-versions  - 管理資料版本"
+	@echo ""
+	@echo "☸️  Kubernetes 部署："
+	@echo "  1. 快速開始："
+	@echo "     make k8s-quick-deploy  - 一鍵部署（建構+部署）"
+	@echo "     make k8s-setup         - 安裝並啟動 minikube"
+	@echo "     make k8s-build         - 建構 Docker 映像"
+	@echo "     make k8s-build-fast    - 快速建構（輕量版）"
+	@echo "     make k8s-deploy        - 部署到 Kubernetes"
+	@echo ""
+	@echo "  2. 管理操作："
+	@echo "     make k8s-status        - 查看部署狀態"
+	@echo "     make k8s-logs          - 查看服務日誌"
+	@echo "     make k8s-restart       - 重啟服務"
+	@echo "     make k8s-scale         - 擴展服務"
+	@echo "     make k8s-verify        - 驗證部署"
+	@echo "     make k8s-cleanup       - 清理資源"
+	@echo "     make k8s-full-cleanup  - 完全清理（包含映像）"

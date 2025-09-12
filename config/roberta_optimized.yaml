@@ -1,0 +1,38 @@
+experiment_name: "roberta_optimized_experiment"  # 優化後的 RoBERTa 實驗名稱
+
+model:
+  name: "roberta-base"  # 使用 RoBERTa 模型
+  num_labels: 2
+
+lora:
+  r: 16  # 增加 LoRA 秩
+  lora_alpha: 32  # 增加 alpha
+  target_modules: ["query", "value", "key"]  # 添加 key 注意力
+  lora_dropout: 0.1
+  bias: "none"
+  task_type: "SEQ_CLS"
+
+data:
+  dataset_name: "glue"
+  dataset_config: "sst2"
+  train_samples: 500
+  eval_samples: 100
+  max_length: 128
+  validation_rules:
+    min_text_length: 5
+    max_text_length: 500
+    allow_empty: false
+    remove_html: true
+
+training:
+  output_dir: "./results"
+  eval_strategy: "epoch"
+  learning_rate: 1.0e-3  # 增加學習率
+  per_device_train_batch_size: 4  # 增加批次大小
+  num_train_epochs: 2  # 增加訓練輪數
+  logging_steps: 10
+  device: null
+
+system:
+  log_file: "logs/training_progress.log"
+  save_config: true

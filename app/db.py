@@ -22,6 +22,17 @@ class ExperimentRecord(BaseModel):
     eval_accuracy: float
     log_path: str
 
+    # 新增欄位
+    tokens_per_sec: float = 0.0
+    cpu_percent: float = 0.0
+    memory_gb: float = 0.0
+    model_name: str = ""
+    dataset_name: str = ""
+    train_samples: int = 0
+    batch_size: int = 0
+    learning_rate: float = 0.0
+    num_epochs: int = 0
+
 
 class ExperimentFilter(BaseModel):
     """實驗篩選條件"""
@@ -31,6 +42,8 @@ class ExperimentFilter(BaseModel):
     max_runtime: Optional[float] = None
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
+    model_name: Optional[str] = None
+    dataset_name: Optional[str] = None
 
 
 class Database:
@@ -55,13 +68,29 @@ class Database:
                     config_path TEXT NOT NULL,
                     train_runtime FLOAT NOT NULL,
                     eval_accuracy FLOAT NOT NULL,
-                    log_path TEXT NOT NULL
+                    log_path TEXT NOT NULL,
+                    tokens_per_sec FLOAT DEFAULT 0,
+                    cpu_percent FLOAT DEFAULT 0,
+                    memory_gb FLOAT DEFAULT 0,
+                    model_name TEXT DEFAULT '',
+                    dataset_name TEXT DEFAULT '',
+                    train_samples INTEGER DEFAULT 0,
+                    batch_size INTEGER DEFAULT 0,
+                    learning_rate FLOAT DEFAULT 0,
+                    num_epochs INTEGER DEFAULT 0
                 )
             """)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_created_at ON experiments(created_at)"
-            )
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_name ON experiments(name)")
+            # 建立索引
+            indexes = [
+                "idx_created_at ON experiments(created_at)",
+                "idx_name ON experiments(name)",
+                "idx_model_name ON experiments(model_name)",
+                "idx_dataset_name ON experiments(dataset_name)",
+                "idx_accuracy ON experiments(eval_accuracy)",
+                "idx_runtime ON experiments(train_runtime)",
+            ]
+            for idx in indexes:
+                conn.execute(f"CREATE INDEX IF NOT EXISTS {idx}")
 
     def save_experiment(self, experiment: ExperimentRecord) -> None:
         """儲存實驗記錄"""
@@ -70,8 +99,11 @@ class Database:
                 """
                 INSERT INTO experiments (
                     id, name, created_at, config_path,
-                    train_runtime, eval_accuracy, log_path
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    train_runtime, eval_accuracy, log_path,
+                    tokens_per_sec, cpu_percent, memory_gb,
+                    model_name, dataset_name, train_samples,
+                    batch_size, learning_rate, num_epochs
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     experiment.id,
@@ -81,6 +113,15 @@ class Database:
                     experiment.train_runtime,
                     experiment.eval_accuracy,
                     experiment.log_path,
+                    experiment.tokens_per_sec,
+                    experiment.cpu_percent,
+                    experiment.memory_gb,
+                    experiment.model_name,
+                    experiment.dataset_name,
+                    experiment.train_samples,
+                    experiment.batch_size,
+                    experiment.learning_rate,
+                    experiment.num_epochs,
                 ),
             )
 
@@ -93,15 +134,7 @@ class Database:
             )
             row = cursor.fetchone()
             if row:
-                return ExperimentRecord(
-                    id=row["id"],
-                    name=row["name"],
-                    created_at=datetime.fromisoformat(row["created_at"]),
-                    config_path=row["config_path"],
-                    train_runtime=row["train_runtime"],
-                    eval_accuracy=row["eval_accuracy"],
-                    log_path=row["log_path"],
-                )
+                return ExperimentRecord(**dict(row))
             return None
 
     def list_experiments(
@@ -133,12 +166,25 @@ class Database:
             if filter_params.end_date:
                 conditions.append("created_at <= ?")
                 params.append(filter_params.end_date.isoformat())
+            if filter_params.model_name:
+                conditions.append("model_name = ?")
+                params.append(filter_params.model_name)
+            if filter_params.dataset_name:
+                conditions.append("dataset_name = ?")
+                params.append(filter_params.dataset_name)
 
             if conditions:
                 query.append("WHERE " + " AND ".join(conditions))
 
         # 處理排序
-        valid_sort_fields = {"created_at", "name", "train_runtime", "eval_accuracy"}
+        valid_sort_fields = {
+            "created_at",
+            "name",
+            "train_runtime",
+            "eval_accuracy",
+            "tokens_per_sec",
+            "train_samples",
+        }
         if sort_by not in valid_sort_fields:
             sort_by = "created_at"
         query.append(f"ORDER BY {sort_by} {'DESC' if desc else 'ASC'}")
@@ -151,18 +197,7 @@ class Database:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute(" ".join(query), params)
-            return [
-                ExperimentRecord(
-                    id=row["id"],
-                    name=row["name"],
-                    created_at=datetime.fromisoformat(row["created_at"]),
-                    config_path=row["config_path"],
-                    train_runtime=row["train_runtime"],
-                    eval_accuracy=row["eval_accuracy"],
-                    log_path=row["log_path"],
-                )
-                for row in cursor.fetchall()
-            ]
+            return [ExperimentRecord(**dict(row)) for row in cursor.fetchall()]
 
     def get_statistics(self) -> Dict:
         """獲取實驗統計資訊"""
@@ -174,7 +209,10 @@ class Database:
                     AVG(train_runtime) as avg_runtime,
                     AVG(eval_accuracy) as avg_accuracy,
                     MAX(eval_accuracy) as best_accuracy,
-                    MIN(train_runtime) as min_runtime
+                    MIN(train_runtime) as min_runtime,
+                    AVG(tokens_per_sec) as avg_tokens_per_sec,
+                    AVG(cpu_percent) as avg_cpu_percent,
+                    AVG(memory_gb) as avg_memory_gb
                 FROM experiments
             """)
             return dict(cursor.fetchone())

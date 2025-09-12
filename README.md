@@ -11,6 +11,7 @@
 - 📝 結構化的配置管理（Pydantic + YAML）
 - ☸️ 完整的 Kubernetes 部署支援
 - 🐳 優化的多階段 Docker 構建
+- 📈 效能監控與分析工具
 
 ---
 
@@ -154,10 +155,19 @@ make k8s-scale service=worker replicas=3  # 調整 worker 數量
 
 ### 自定義訓練
 
-1. **修改預設配置**：
+1. **使用效能監控**：
+   在訓練過程中自動啟用 `PerformanceMonitor` 以收集系統和訓練指標。
+
+2. **分析實驗數據**：
+   使用 `analyze_metrics.py` 來生成實驗比較報告。
+   ```bash
+   make analyze-by-model
+   ```
+
+3. **修改預設配置**：
    直接編輯 `config/default.yaml`
 
-2. **使用命令列參數**：
+4. **使用命令列參數**：
    ```bash
    python app/train_lora_v2.py \
      --experiment_name "custom_test" \
@@ -250,6 +260,11 @@ results/
    - `sort_by`：排序欄位（created_at/name/train_runtime/eval_accuracy）
    - `desc`：是否降序排序
    - `limit`：返回數量限制
+
+### 效能監控與分析
+本專案提供了強大的效能監控與分析工具，幫助用戶追蹤訓練過程中的系統資源使用情況和模型性能。
+`performance.py` 提供了 `PerformanceMonitor` 類，用於收集 CPU、記憶體使用率以及訓練過程中的 token 處理速度。
+`analyze_metrics.py` 提供了分析工具，能夠從多個實驗中提取數據並生成比較報告。
 
 ---
 

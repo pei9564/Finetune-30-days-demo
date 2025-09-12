@@ -4,7 +4,6 @@ LoRA 訓練腳本 v2
 """
 
 import argparse
-import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -283,25 +282,24 @@ def train_and_evaluate(config, trainer):
     return train_result, eval_result
 
 
-def save_experiment_results(exp_dir, config, train_result, eval_result):
+def save_experiment_results(exp_dir, config, train_result, eval_result, trainer):
     """保存實驗結果"""
-    # 準備實驗結果
-    metrics = {
-        "train": {
-            "global_step": train_result.global_step,
-            "runtime": train_result.metrics["train_runtime"],
-        },
-        "eval": {"accuracy": eval_result["eval_accuracy"]},
-        "timestamp": datetime.now().isoformat(),
-    }
+    # 創建效能監控器
+    from monitoring import PerformanceMonitor
 
-    # 保存指標
-    metrics_file = exp_dir / "metrics.json"
-    with open(metrics_file, "w", encoding="utf-8") as f:
-        json.dump(metrics, f, indent=2, ensure_ascii=False)
+    monitor = PerformanceMonitor(exp_dir)
+
+    # 更新序列長度統計
+    for batch in trainer.get_train_dataloader():
+        monitor.update_sequence_length(
+            len(batch["input_ids"]), batch["input_ids"].shape[1]
+        )
+
+    # 保存完整指標
+    metrics = monitor.save_metrics(trainer, train_result, eval_result)
 
     # 保存配置
-    config_dict = config.dict()
+    config_dict = config.model_dump()  # 使用 model_dump 替代 dict
     config_dict["results"] = metrics
     config_file = exp_dir / "config.yaml"
     with open(config_file, "w", encoding="utf-8") as f:
@@ -320,6 +318,17 @@ def save_experiment_results(exp_dir, config, train_result, eval_result):
             train_runtime=metrics["train"]["runtime"],
             eval_accuracy=metrics["eval"]["accuracy"],
             log_path=str(exp_dir / "logs.txt"),
+            # 新增效能指標
+            tokens_per_sec=metrics["train"]["tokens_per_sec"],
+            cpu_percent=metrics["system"]["cpu_percent"],
+            memory_gb=metrics["system"]["memory_gb"],
+            # 新增訓練參數
+            model_name=config.model.name,
+            dataset_name=config.data.dataset_name,
+            train_samples=config.data.train_samples,
+            batch_size=config.training.per_device_train_batch_size,
+            learning_rate=config.training.learning_rate,
+            num_epochs=config.training.num_train_epochs,
         )
     )
 
@@ -418,7 +427,7 @@ def main(config=None):
     train_result, eval_result = train_and_evaluate(config, trainer)
 
     # 保存實驗結果
-    save_experiment_results(exp_dir, config, train_result, eval_result)
+    save_experiment_results(exp_dir, config, train_result, eval_result, trainer)
 
     return train_result, eval_result
 
