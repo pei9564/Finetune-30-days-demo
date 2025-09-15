@@ -3,7 +3,7 @@
         start-services stop-services restart-services logs-services logs-service \
         k8s-setup k8s-build k8s-build-fast k8s-deploy k8s-verify k8s-cleanup \
         k8s-status k8s-logs k8s-restart k8s-scale k8s-quick-deploy k8s-full-cleanup \
-        help check-docker
+        help check-docker serve predict-health predict-text predict-positive predict-negative
 
 # ==============================================================================
 # 通用變量和函數
@@ -296,11 +296,98 @@ k8s-full-cleanup:
 	@./k8s/k8s.sh full-cleanup
 
 # ==============================================================================
+# 推理服務相關命令
+# ==============================================================================
+
+# 尋找最新的實驗
+define find_latest_experiment
+	@latest_exp=$$(ls -td results/*/ 2>/dev/null | head -n1 | xargs basename); \
+	if [ -z "$$latest_exp" ]; then \
+		echo "❌ 找不到訓練好的模型！請先執行訓練。"; \
+		exit 1; \
+	fi; \
+	if [ ! -d "results/$$latest_exp/artifacts/final_model" ]; then \
+		echo "❌ 最新實驗 $$latest_exp 中找不到模型！"; \
+		exit 1; \
+	fi; \
+	echo "✅ 找到最新實驗：$$latest_exp"
+endef
+
+# 啟動推理服務
+serve:
+	@echo "🚀 啟動推理服務..."
+	@if [ -n "$(exp)" ]; then \
+		if [ ! -d "results/$(exp)/artifacts/final_model" ]; then \
+			echo "❌ 找不到實驗模型：results/$(exp)/artifacts/final_model"; \
+			exit 1; \
+		fi; \
+		echo "📌 使用實驗：$(exp)"; \
+		MODEL_PATH="results/$(exp)/artifacts/final_model" bash -c '\
+			$(detect_env) \
+			$(check_env_exists) \
+			source $$(conda info --base)/etc/profile.d/conda.sh && \
+			conda activate $$ENV_NAME && \
+			cd $(PWD) && PYTHONPATH=$(PWD) python app/inference_api.py \
+		'; \
+	else \
+		$(find_latest_experiment); \
+		echo "📌 使用最新實驗：$$latest_exp"; \
+		MODEL_PATH="results/$$latest_exp/artifacts/final_model" bash -c '\
+			$(detect_env) \
+			$(check_env_exists) \
+			source $$(conda info --base)/etc/profile.d/conda.sh && \
+			conda activate $$ENV_NAME && \
+			cd $(PWD) && PYTHONPATH=$(PWD) python app/inference_api.py \
+		'; \
+	fi
+
+
+# 預測服務測試指令
+predict-health:
+	@echo "🔍 檢查服務狀態..."
+	@curl -s http://localhost:8002/health | python3 -m json.tool
+
+predict-text:
+	@echo "🔍 測試文本預測..."
+	@if [ -z "$(text)" ]; then \
+		echo "❌ 請提供測試文本：make predict-text text='This movie was great!'"; \
+		exit 1; \
+	fi
+	@curl -s -X POST http://localhost:8002/predict \
+		-H "Content-Type: application/json" \
+		-d '{"text": "$(text)"}' | python3 -m json.tool
+
+predict-positive:
+	@echo "🔍 測試正面評論範例..."
+	@curl -s -X POST http://localhost:8002/predict \
+		-H "Content-Type: application/json" \
+		-d '{"text": "This movie was fantastic! I really enjoyed it."}' | python3 -m json.tool
+
+predict-negative:
+	@echo "🔍 測試負面評論範例..."
+	@curl -s -X POST http://localhost:8002/predict \
+		-H "Content-Type: application/json" \
+		-d '{"text": "This was a terrible movie. Complete waste of time."}' | python3 -m json.tool
+
+# ==============================================================================
 # 幫助信息
 # ==============================================================================
 
 help:
 	@echo "🍎 LoRA 訓練環境管理命令"
+	@echo ""
+	@echo "🚀 推理服務："
+	@echo "  1. 服務管理："
+	@echo "     make serve - 使用最新實驗啟動服務"
+	@echo "     make serve exp=實驗名稱 - 使用指定實驗啟動"
+	@echo "     例如：make serve exp=default_experiment_20250911_233842"
+	@echo ""
+	@echo "  2. 預測測試："
+	@echo "     make predict-health   - 檢查服務狀態"
+	@echo "     make predict-text     - 測試自訂文本，例如："
+	@echo "     make predict-text text='This movie was great!'"
+	@echo "     make predict-positive - 測試正面評論範例"
+	@echo "     make predict-negative - 測試負面評論範例"
 	@echo ""
 	@echo "🚀 訓練模式："
 	@echo "  1. 本地直接訓練："
