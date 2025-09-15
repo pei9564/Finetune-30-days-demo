@@ -1,4 +1,5 @@
 .PHONY: setup-conda run-local logs-local analyze-metrics analyze-by-model analyze-by-dataset \
+        test test-v \
         data-analyze data-validate data-versions db-list \
         start-services stop-services restart-services logs-services logs-service \
         k8s-setup k8s-build k8s-build-fast k8s-deploy k8s-verify k8s-cleanup \
@@ -44,6 +45,31 @@ define check_env_exists
 endef
 
 # ==============================================================================
+# 測試相關命令
+# ==============================================================================
+
+# 運行所有測試
+test:
+	@echo "🧪 運行所有測試..."
+	@bash -c '\
+		$(detect_env) \
+		$(check_env_exists) \
+		source $$(conda info --base)/etc/profile.d/conda.sh && \
+		conda activate $$ENV_NAME && \
+		cd $(PWD) && PYTHONPATH=$(PWD) python -m pytest app/tests/ -v'
+
+# 運行所有測試（詳細模式）
+test-v:
+	@echo "🧪 運行所有測試（詳細模式）..."
+	@bash -c '\
+		$(detect_env) \
+		$(check_env_exists) \
+		source $$(conda info --base)/etc/profile.d/conda.sh && \
+		conda activate $$ENV_NAME && \
+		cd $(PWD) && PYTHONPATH=$(PWD) python -m pytest app/tests/ -v -s'
+
+
+# ==============================================================================
 # 本地訓練相關命令
 # ==============================================================================
 
@@ -65,7 +91,9 @@ setup-conda:
 		conda activate $$ENV_NAME && \
 		pip install --upgrade pip && pip install -r requirements.txt; \
 		echo "✅ 依賴安裝完成！"; \
-		echo "📋 下一步：make run-local" \
+		echo "📋 下一步："; \
+		echo "  - make run-local  # 執行訓練"; \
+		echo "  - make test-v     # 運行測試" \
 	'
 
 # 本地運行訓練
@@ -388,6 +416,10 @@ help:
 	@echo "     make predict-text text='This movie was great!'"
 	@echo "     make predict-positive - 測試正面評論範例"
 	@echo "     make predict-negative - 測試負面評論範例"
+	@echo ""
+	@echo "🧪 測試命令："
+	@echo "  make test          - 運行所有測試"
+	@echo "  make test-v        - 運行所有測試（詳細模式）"
 	@echo ""
 	@echo "🚀 訓練模式："
 	@echo "  1. 本地直接訓練："

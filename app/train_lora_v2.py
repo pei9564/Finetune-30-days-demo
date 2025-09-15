@@ -10,16 +10,10 @@ from pathlib import Path
 
 import evaluate
 import numpy as np
+import psutil
 import torch
 import yaml
-from data_management import (
-    DataValidator,
-    DataVersionManager,
-    analyze_distribution,
-    get_data_summary,
-)
 from datasets import load_dataset
-from logger_config import setup_progress_logger, setup_system_logger
 from peft import LoraConfig, get_peft_model
 from transformers import (
     AutoModelForSequenceClassification,
@@ -29,7 +23,16 @@ from transformers import (
     TrainingArguments,
 )
 
-from config import load_config
+from app.config import load_config
+from app.data_management import (
+    DataValidator,
+    DataVersionManager,
+    analyze_distribution,
+    get_data_summary,
+)
+from app.db import Database, ExperimentRecord
+from app.logger_config import setup_progress_logger, setup_system_logger
+from app.monitoring import PerformanceMonitor
 
 # 全局 logger，會在 setup_experiment_dir 中初始化
 logger: logging.Logger
@@ -102,9 +105,30 @@ def load_model_and_tokenizer(config, device):
 def load_and_process_data(config, tokenizer):
     """載入與處理資料"""
     logger.info("📊 載入資料集...")
-    dataset = load_dataset(config.data.dataset_name, config.data.dataset_config)
-    train_small = dataset["train"].select(range(config.data.train_samples))
-    eval_small = dataset["validation"].select(range(config.data.eval_samples))
+    try:
+        dataset = load_dataset(config.data.dataset_name, config.data.dataset_config)
+    except Exception as e:
+        raise ValueError(f"無法載入數據集 {config.data.dataset_name}: {str(e)}")
+
+    # 檢查數據集是否存在必要的分割
+    required_splits = ["train", "validation"]
+    for split in required_splits:
+        if split not in dataset:
+            raise ValueError(f"數據集缺少必要的分割: {split}")
+
+    # 選擇指定數量的樣本
+    try:
+        train_small = dataset["train"].select(range(config.data.train_samples))
+        eval_small = dataset["validation"].select(range(config.data.eval_samples))
+    except Exception as e:
+        raise ValueError(f"選擇數據樣本時發生錯誤: {str(e)}")
+
+    # 檢查數據集大小
+    if len(train_small) == 0:
+        raise ValueError("訓練數據集不能為空")
+    if len(eval_small) == 0:
+        raise ValueError("驗證數據集不能為空")
+
     logger.info(f"   - 訓練資料: {len(train_small)} 筆")
     logger.info(f"   - 驗證資料: {len(eval_small)} 筆")
 
@@ -169,11 +193,29 @@ def load_and_process_data(config, tokenizer):
 
     # 資料處理
     def tokenize(batch):
+        # 計算 token 長度
+        token_lengths = [len(tokenizer.encode(text)) for text in batch["sentence"]]
+        max_token_length = max(token_lengths)
+
+        # 如果有超長序列，記錄警告
+        if max_token_length > config.data.max_length:
+            num_truncated = sum(
+                1 for length in token_lengths if length > config.data.max_length
+            )
+            logger.warning(
+                f"發現 {num_truncated} 個超長序列 "
+                f"(最長: {max_token_length} tokens, "
+                f"限制: {config.data.max_length} tokens)"
+            )
+
+        # 執行 tokenize
         return tokenizer(
             batch["sentence"],
             padding="max_length",
             truncation=True,
             max_length=config.data.max_length,
+            # 不返回 overflowing_tokens，因為它會改變序列長度
+            return_length=True,  # 返回序列長度信息
         )
 
     train_dataset = train_small.map(tokenize, batched=True)
@@ -256,9 +298,50 @@ def train_and_evaluate(config, trainer):
     logger.info("🚀 開始訓練...")
     logger.info("=" * 50)
 
+    # 檢查初始記憶體狀態
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+        initial_gpu_memory = torch.cuda.memory_allocated() / 1024**3  # GB
+        logger.info(f"初始 GPU 記憶體使用: {initial_gpu_memory:.2f}GB")
+
     # 訓練
-    train_result = trainer.train()
-    logger.info("🎉 訓練完成！")
+    try:
+        train_result = trainer.train()
+        logger.info("🎉 訓練完成！")
+
+        # 記錄最大記憶體使用量
+        if torch.cuda.is_available():
+            peak_gpu_memory = torch.cuda.max_memory_allocated() / 1024**3  # GB
+            current_gpu_memory = torch.cuda.memory_allocated() / 1024**3  # GB
+            logger.info(f"最大 GPU 記憶體使用: {peak_gpu_memory:.2f}GB")
+            logger.info(f"當前 GPU 記憶體使用: {current_gpu_memory:.2f}GB")
+
+            # 檢查是否接近記憶體限制
+            total_gpu_memory = (
+                torch.cuda.get_device_properties(0).total_memory / 1024**3
+            )
+            if peak_gpu_memory > total_gpu_memory * 0.9:  # 使用超過 90% 的記憶體
+                logger.warning(
+                    f"⚠️ GPU 記憶體使用率過高: {(peak_gpu_memory / total_gpu_memory) * 100:.1f}%"
+                )
+    except RuntimeError as e:
+        if "out of memory" in str(e):
+            if torch.cuda.is_available():
+                current_gpu_memory = torch.cuda.memory_allocated() / 1024**3
+                total_gpu_memory = (
+                    torch.cuda.get_device_properties(0).total_memory / 1024**3
+                )
+                raise RuntimeError(
+                    f"GPU 記憶體不足: 已使用 {current_gpu_memory:.1f}GB / 總計 {total_gpu_memory:.1f}GB"
+                ) from e
+            else:
+                current_memory = psutil.Process().memory_info().rss / 1024**3
+                total_memory = psutil.virtual_memory().total / 1024**3
+                raise RuntimeError(
+                    f"CPU 記憶體不足: 已使用 {current_memory:.1f}GB / 總計 {total_memory:.1f}GB"
+                ) from e
+        raise
+
     logger.info("=" * 50)
 
     # 評估
@@ -285,7 +368,6 @@ def train_and_evaluate(config, trainer):
 def save_experiment_results(exp_dir, config, train_result, eval_result, trainer):
     """保存實驗結果"""
     # 創建效能監控器
-    from monitoring import PerformanceMonitor
 
     monitor = PerformanceMonitor(exp_dir)
 
@@ -306,7 +388,6 @@ def save_experiment_results(exp_dir, config, train_result, eval_result, trainer)
         yaml.dump(config_dict, f, allow_unicode=True, sort_keys=False)
 
     # 保存到資料庫
-    from db import Database, ExperimentRecord
 
     db = Database()
     db.save_experiment(

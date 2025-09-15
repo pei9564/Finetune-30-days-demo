@@ -3,7 +3,8 @@ Celery 應用配置
 """
 
 from celery import Celery
-from settings import CELERY_BROKER_URL, CELERY_RESULT_BACKEND
+
+from app.settings import CELERY_BROKER_URL, CELERY_RESULT_BACKEND
 
 # 創建 Celery 應用
 celery_app = Celery(

@@ -6,10 +6,11 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from celery.result import AsyncResult
-from db import Database, ExperimentFilter, ExperimentRecord
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
-from tasks.training import train_lora as train_lora_task
+
+from app.db import Database, ExperimentFilter, ExperimentRecord
+from app.tasks.training import train_lora as train_lora_task
 
 app = FastAPI(title="LoRA Training API")
 
@@ -42,7 +43,7 @@ async def start_training(request: TrainingRequest) -> Dict[str, str]:
         Dict[str, str]: 包含任務 ID 的字典
     """
     # 提交任務
-    task = train_lora_task.delay(config=request.config.dict())
+    task = train_lora_task.delay(config=request.config.model_dump())
 
     return {"task_id": task.id}
 
@@ -56,22 +57,34 @@ async def get_task_status(task_id: str) -> Dict:
 
     Returns:
         Dict: 包含任務狀態和結果的字典
+
+    Raises:
+        HTTPException: 當任務不存在時
     """
-    task = AsyncResult(task_id)
+    try:
+        task = AsyncResult(task_id)
+        task_meta = task.backend.get_task_meta(task_id)
+        if task_meta["status"] == "PENDING" and not task.backend.get_task_meta(task_id):
+            raise HTTPException(status_code=404, detail=f"找不到任務: {task_id}")
 
-    if not task.ready():
-        return {"status": task.status}
+        if not task.ready():
+            return {"status": task.status}
 
-    if task.failed():
+        if task.failed():
+            error = task.result
+            return {
+                "status": task.status,
+                "error": str(error),
+            }
+
         return {
             "status": task.status,
-            "error": str(task.result),
+            "result": task.result,
         }
-
-    return {
-        "status": task.status,
-        "result": task.result,
-    }
+    except Exception as e:
+        if "no backend" in str(e).lower() or not hasattr(task.backend, "get_task_meta"):
+            raise HTTPException(status_code=404, detail=f"找不到任務: {task_id}")
+        raise
 
 
 @app.get("/experiments", response_model=List[ExperimentRecord])

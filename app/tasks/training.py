@@ -3,10 +3,9 @@
 """
 
 from typing import Dict
-
-from train_lora_v2 import main as train_main
-
-from . import celery_app
+from app.config import Config
+from app.tasks import celery_app
+from app.train_lora_v2 import main as train_main
 
 
 @celery_app.task
@@ -19,8 +18,6 @@ def train_lora(config: Dict) -> Dict:
     Returns:
         Dict: 包含訓練結果的字典
     """
-    # 將字典轉換為配置對象
-    from config import Config
 
     config = Config(**config)
 
