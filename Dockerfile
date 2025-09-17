@@ -37,15 +37,14 @@ RUN apt-get update --fix-missing && \
 # 從構建階段複製 Python 環境
 COPY --from=builder /usr/local/lib/python3.11/site-packages/ /usr/local/lib/python3.11/site-packages/
 
-# 複製應用程式碼
-COPY app/ ./app/
-COPY config/ ./config/
+# 複製整個專案目錄
+COPY . .
 
 # 創建必要的目錄
-RUN mkdir -p /app/results/config
+RUN mkdir -p results/config
 
 # 設置環境變數
-ENV PYTHONPATH=/app \
+ENV PYTHONPATH=/app:$PYTHONPATH \
     PYTHONUNBUFFERED=1
 
 # 設置默認命令（將由 k8s 或 docker-compose 覆蓋）

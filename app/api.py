@@ -6,15 +6,36 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from celery.result import AsyncResult
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
+from app.auth.jwt_utils import (
+    check_admin,
+    check_task_owner,
+    create_token,
+    get_current_user,
+)
 from app.db import Database, ExperimentFilter, ExperimentRecord
 from app.exceptions import setup_error_handlers
 from app.tasks.training import train_lora as train_lora_task
 
 app = FastAPI(title="LoRA Training API")
 setup_error_handlers(app)  # 設置全域錯誤處理
+
+
+class LoginRequest(BaseModel):
+    """登入請求模型"""
+
+    username: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    """登入響應模型"""
+
+    token: str
+    user_id: str
+    role: str
 
 
 class TrainingConfig(BaseModel):
@@ -34,8 +55,37 @@ class TrainingRequest(BaseModel):
     config: TrainingConfig
 
 
+@app.post("/login", response_model=LoginResponse)
+async def login(request: LoginRequest) -> LoginResponse:
+    """用戶登入
+
+    Args:
+        request: 包含用戶名和密碼的請求
+
+    Returns:
+        LoginResponse: 包含 token 和用戶信息的響應
+
+    Raises:
+        HTTPException: 當認證失敗時
+    """
+    # 這裡應該實現真實的用戶認證邏輯
+    # 目前僅作為示例：admin/admin 為管理員，其他為普通用戶
+    if request.username == "admin" and request.password == "admin":
+        role = "admin"
+    else:
+        role = "user"
+
+    # 生成 token
+    user_id = request.username  # 在實際應用中應該使用真實的用戶 ID
+    token = create_token(user_id, role)
+
+    return LoginResponse(token=token, user_id=user_id, role=role)
+
+
 @app.post("/train")
-async def start_training(request: TrainingRequest) -> Dict[str, str]:
+async def start_training(
+    request: TrainingRequest, user: Dict = Depends(get_current_user)
+) -> Dict[str, str]:
     """提交訓練任務
 
     Args:
@@ -51,7 +101,7 @@ async def start_training(request: TrainingRequest) -> Dict[str, str]:
 
 
 @app.get("/task/{task_id}")
-async def get_task_status(task_id: str) -> Dict:
+async def get_task_status(task_id: str, user: Dict = Depends(check_task_owner)) -> Dict:
     """查詢任務狀態
 
     Args:
@@ -63,6 +113,7 @@ async def get_task_status(task_id: str) -> Dict:
     Raises:
         HTTPException: 當任務不存在時
     """
+
     try:
         task = AsyncResult(task_id)
         task_meta = task.backend.get_task_meta(task_id)
@@ -91,6 +142,7 @@ async def get_task_status(task_id: str) -> Dict:
 
 @app.get("/experiments", response_model=List[ExperimentRecord])
 async def list_experiments(
+    user: Dict = Depends(check_admin),
     name: Optional[str] = None,
     min_accuracy: Optional[float] = Query(None, ge=0, le=1),
     max_runtime: Optional[float] = Query(None, gt=0),
@@ -129,7 +181,7 @@ async def list_experiments(
 
 
 @app.get("/experiments/stats")
-async def get_experiment_stats() -> Dict:
+async def get_experiment_stats(user: Dict = Depends(check_admin)) -> Dict:
     """獲取實驗統計資訊
 
     Returns:
@@ -140,7 +192,9 @@ async def get_experiment_stats() -> Dict:
 
 
 @app.get("/experiments/{experiment_id}", response_model=ExperimentRecord)
-async def get_experiment(experiment_id: str) -> ExperimentRecord:
+async def get_experiment(
+    experiment_id: str, user: Dict = Depends(check_task_owner)
+) -> ExperimentRecord:
     """查詢單一實驗記錄
 
     Args:

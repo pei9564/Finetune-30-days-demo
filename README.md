@@ -71,6 +71,86 @@ graph TB
     Results --> |實驗記錄| DB[(experiments.db)]
 ```
 
+## 🔐 認證與授權機制
+
+本系統採用 JWT (JSON Web Token) 進行認證和授權管理，實現了完整的 RBAC（基於角色的訪問控制）。
+
+### 認證流程
+
+```mermaid
+sequenceDiagram
+    participant C as 客戶端
+    participant A as API
+    participant J as JWT Utils
+    
+    C->>A: POST /login (username, password)
+    A->>A: 驗證用戶憑證
+    A->>J: create_token(user_id, role)
+    J-->>A: JWT Token
+    A-->>C: {token, user_id, role}
+    
+    Note over C,A: 後續請求
+    C->>A: API 請求 + Bearer Token
+    A->>J: get_current_user(token)
+    J-->>A: user_info 或 401/403 錯誤
+```
+
+### 權限控制
+
+系統實現了三層權限控制：
+
+1. **基本認證** (`get_current_user`)：
+   - 驗證 Bearer Token 的存在和有效性
+   - 解析用戶身份和角色信息
+   - 處理 token 過期和無效情況
+
+2. **管理員權限** (`check_admin`)：
+   - 限制只有管理員可以訪問的端點
+   - 用於敏感操作（如查看所有實驗記錄）
+   - 返回 403 錯誤給非管理員用戶
+
+3. **資源所有權** (`check_task_owner`)：
+   - 確保用戶只能訪問自己的資源
+   - 管理員可以訪問所有資源
+   - 基於資源 ID 前綴驗證所有權
+
+### API 端點權限
+
+| 端點 | 方法 | 權限要求 | 說明 |
+|------|------|----------|------|
+| `/login` | POST | 無 | 用戶登入，返回 JWT token |
+| `/train` | POST | 已認證用戶 | 提交訓練任務 |
+| `/task/{task_id}` | GET | 任務所有者 | 查詢任務狀態 |
+| `/experiments` | GET | 管理員 | 列出所有實驗記錄 |
+| `/experiments/stats` | GET | 管理員 | 獲取實驗統計信息 |
+| `/experiments/{id}` | GET | 任務所有者 | 查詢單個實驗記錄 |
+
+### JWT 配置
+
+```python
+# JWT 相關配置
+JWT_SECRET = "your-secret-key"  # 生產環境應使用環境變數
+JWT_ALGORITHM = "HS256"         # 加密算法
+TOKEN_EXPIRE_MINUTES = 30       # token 有效期
+```
+
+### 安全性考慮
+
+1. **Token 管理**：
+   - 自動過期機制（30分鐘）
+   - 無狀態設計，不需要服務器存儲
+   - 支援 token 刷新（待實現）
+
+2. **錯誤處理**：
+   - 401：未認證或 token 過期
+   - 403：權限不足
+   - 詳細的錯誤訊息
+
+3. **最佳實踐**：
+   - 使用環境變數管理敏感信息
+   - HTTPS 傳輸（生產環境）
+   - 請求頻率限制（待實現）
+
 ---
 
 ## 📂 專案結構

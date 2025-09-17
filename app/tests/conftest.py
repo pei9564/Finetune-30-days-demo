@@ -2,6 +2,7 @@
 測試配置和共用 fixtures
 """
 
+import os
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -11,12 +12,69 @@ from fastapi.testclient import TestClient
 
 from app.api import app
 from app.config import Config
+from app.monitor.audit import init_audit_table
+
+
+@pytest.fixture(autouse=True)
+def setup_test_env(monkeypatch):
+    """設置測試環境"""
+    # 確保資料庫目錄存在
+    results_dir = os.path.join(os.getcwd(), "results")
+    os.makedirs(results_dir, exist_ok=True)
+
+    # 初始化資料庫
+    init_audit_table()
+
+    # Mock 模型儲存相關操作
+    def mock_noop(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr("torch.save", mock_noop)
+    monkeypatch.setattr("safetensors.torch.save_file", mock_noop)
+    monkeypatch.setattr("transformers.Trainer.save_model", mock_noop)
+    monkeypatch.setattr("transformers.Trainer.save_state", mock_noop)
 
 
 @pytest.fixture
-def test_client():
+def mock_auth(monkeypatch):
+    """Mock 認證相關的依賴
+
+    替換 get_current_user, check_admin, check_task_owner 這些認證相關的依賴函數，
+    使它們在測試中直接返回一個模擬的管理員用戶。
+    """
+    # Mock user data
+    mock_user = {"user_id": "test_user", "role": "admin"}
+
+    # Mock authentication functions
+    mock_decode_token = MagicMock(return_value=mock_user)
+    mock_check_admin = MagicMock(return_value=mock_user)
+    mock_check_task_owner = MagicMock(return_value=mock_user)
+
+    monkeypatch.setattr("app.auth.jwt_utils.decode_token", mock_decode_token)
+    monkeypatch.setattr("app.auth.jwt_utils.check_admin", mock_check_admin)
+    monkeypatch.setattr("app.auth.jwt_utils.check_task_owner", mock_check_task_owner)
+
+    return mock_user
+
+
+@pytest.fixture
+def mock_token():
+    """提供固定的測試 token"""
+    return "test-token-123"
+
+
+@pytest.fixture
+def auth_headers(mock_token):
+    """提供認證 headers"""
+    return {"Authorization": f"Bearer {mock_token}"}
+
+
+@pytest.fixture
+def test_client(mock_auth, auth_headers):
     """提供 FastAPI 測試客戶端"""
-    return TestClient(app)
+    client = TestClient(app)
+    client.headers.update(auth_headers)
+    return client
 
 
 @pytest.fixture

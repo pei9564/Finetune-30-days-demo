@@ -74,7 +74,7 @@ class TestCeleryErrorHandling:
 class TestAPIErrorHandling:
     """API 錯誤處理測試"""
 
-    def test_api_validation_error(self, test_client):
+    def test_api_validation_error(self, test_client, mock_auth):
         """測試參數驗證錯誤處理
 
         測試場景：
@@ -148,7 +148,6 @@ class TestCheckpointManagement:
         remaining = manager.get_checkpoints(artifacts_dir)
         assert len(remaining) == 3
         assert all(file.name.startswith("checkpoint-") for file in remaining)
-
         # 驗證保留的是正確的 checkpoints
         to_keep, kept_metrics = manager.analyze_checkpoints(artifacts_dir)
         assert len(to_keep) == 3

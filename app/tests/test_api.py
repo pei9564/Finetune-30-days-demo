@@ -49,7 +49,7 @@ class TestAPI:
     # 基本功能測試
     # =========================================================================
 
-    def test_train_endpoint(self, test_client, test_config, mock_celery):
+    def test_train_endpoint(self, test_client, test_config, mock_celery, mock_auth):
         """測試訓練端點
 
         測試場景：
@@ -67,7 +67,7 @@ class TestAPI:
         assert "task_id" in response.json()
         assert response.json()["task_id"] == "test-task-123"
 
-    def test_task_status(self, test_client, mock_celery):
+    def test_task_status(self, test_client, mock_celery, mock_auth):
         """測試任務狀態查詢
 
         測試場景：
@@ -137,7 +137,7 @@ class TestAPI:
     # 錯誤處理測試
     # =========================================================================
 
-    def test_invalid_config(self, test_client):
+    def test_invalid_config(self, test_client, mock_auth):
         """測試無效的配置
 
         測試場景：
@@ -171,7 +171,7 @@ class TestAPI:
         assert response.status_code == 422
         assert response.json()["detail"] is not None
 
-    def test_invalid_task_id(self, test_client):
+    def test_invalid_task_id(self, test_client, mock_auth):
         """測試無效的任務ID
 
         測試場景：
@@ -193,7 +193,7 @@ class TestAPI:
             assert response.status_code == 404
             assert "找不到任務" in response.json()["detail"]
 
-    def test_training_error(self, test_client, test_config):
+    def test_training_error(self, test_client, test_config, mock_auth):
         """測試訓練過程中的錯誤
 
         測試場景：

@@ -37,12 +37,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: python -m uvicorn api:app --host ${API_HOST} --port ${API_PORT} --reload
+    command: python -m uvicorn app.api:app --host ${API_HOST} --port ${API_PORT} --reload
     ports:
       - "${API_PORT}:${API_PORT}"
     volumes:
       - ./results:/app/results
-      - ./app:/app  # 開發模式：掛載源碼目錄
+      - ./app:/app/app
       - ./config:/app/config
     depends_on:
       redis:
@@ -62,12 +62,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: python -m streamlit run stepper_ui.py
+    command: python -m streamlit run app/stepper_ui.py
     ports:
       - "${UI_PORT}:8501"
     volumes:
       - ./results:/app/results
-      - ./app:/app  # 開發模式：掛載源碼目錄
+      - ./app:/app/app  # 開發模式：掛載源碼目錄到 /app/app
       - ./config:/app/config
     depends_on:
       - api

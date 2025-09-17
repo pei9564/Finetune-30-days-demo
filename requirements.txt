@@ -17,7 +17,8 @@ redis>=5.0.0
 fastapi>=0.100.0
 uvicorn>=0.23.0
 streamlit>=1.26.0
+PyJWT>=2.8.0  # JWT 支援
 # Testing dependencies
 pytest>=7.4.0
 pytest-asyncio>=0.21.1
-httpx>=0.24.1  # For FastAPI testing
+httpx>=0.24.1
