@@ -10,9 +10,11 @@ from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
 from app.db import Database, ExperimentFilter, ExperimentRecord
+from app.exceptions import setup_error_handlers
 from app.tasks.training import train_lora as train_lora_task
 
 app = FastAPI(title="LoRA Training API")
+setup_error_handlers(app)  # 設置全域錯誤處理
 
 
 class TrainingConfig(BaseModel):

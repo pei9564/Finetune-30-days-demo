@@ -25,6 +25,7 @@ def mock_celery(monkeypatch):
     mock_task = MagicMock()
     mock_task.id = "test-task-123"
     mock_task.status = "SUCCESS"
+    mock_task.retries = 0
     mock_task.result = {
         "status": "success",
         "train": {"global_step": 100},
@@ -33,23 +34,21 @@ def mock_celery(monkeypatch):
     mock_task.ready.return_value = True
     mock_task.failed.return_value = False
 
-    # Mock AsyncResult
-    mock_async_result = MagicMock()
-    mock_result = MagicMock()
-    mock_result.ready.return_value = True
-    mock_result.failed.return_value = False
-    mock_result.status = "SUCCESS"
-    mock_result.result = mock_task.result
-    mock_result.backend = MagicMock()
-    mock_result.backend.get_task_meta.return_value = {
+    # Mock backend
+    mock_backend = MagicMock()
+    mock_backend.get_task_meta.return_value = {
         "status": "SUCCESS",
         "result": mock_task.result,
     }
-    mock_async_result.return_value = mock_result
+    mock_task.backend = mock_backend
 
     # Mock delay
     def mock_delay(*args, **kwargs):
         return mock_task
+
+    # Mock AsyncResult
+    mock_async_result = MagicMock()
+    mock_async_result.return_value = mock_task
 
     # Patch Celery task
     monkeypatch.setattr("app.tasks.training.train_lora.delay", mock_delay)

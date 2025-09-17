@@ -33,6 +33,7 @@ from app.data_management import (
 from app.db import Database, ExperimentRecord
 from app.logger_config import setup_progress_logger, setup_system_logger
 from app.monitoring import PerformanceMonitor
+from app.tools.checkpoint_manager import CheckpointManager
 
 # 全局 logger，會在 setup_experiment_dir 中初始化
 logger: logging.Logger
@@ -263,12 +264,18 @@ def setup_training(config, model, train_dataset, eval_dataset, exp_dir):
     logger.info("⚙️ 設置訓練參數...")
     training_args = TrainingArguments(
         output_dir=config.training.output_dir,
-        eval_strategy=config.training.eval_strategy,
         learning_rate=config.training.learning_rate,
         per_device_train_batch_size=config.training.per_device_train_batch_size,
         num_train_epochs=config.training.num_train_epochs,
         logging_steps=config.training.logging_steps,
         report_to=None,
+        # Checkpoint 相關配置
+        save_strategy="epoch",  # 每個 epoch 保存一次
+        save_total_limit=None,  # 不限制保存數量，由 CheckpointManager 管理
+        eval_strategy="epoch",  # 每個 epoch 評估一次
+        load_best_model_at_end=True,  # 訓練結束後載入最佳模型
+        metric_for_best_model="eval_accuracy",  # 使用驗證準確率選擇最佳模型
+        greater_is_better=True,  # 指標越大越好
     )
 
     logger.info("📝 訓練參數:")
@@ -276,6 +283,16 @@ def setup_training(config, model, train_dataset, eval_dataset, exp_dir):
     logger.info(f"   - 批次大小: {training_args.per_device_train_batch_size}")
     logger.info(f"   - 訓練輪數: {training_args.num_train_epochs}")
     logger.info(f"   - 記錄頻率: 每 {training_args.logging_steps} 步")
+
+    logger.info("📝 Checkpoint 設置:")
+    logger.info("   - 保存策略: 每個 epoch")
+    logger.info("   - 評估策略: 每個 epoch")
+    logger.info(f"   - 載入最佳模型: {training_args.load_best_model_at_end}")
+    logger.info(f"   - 評估指標: {training_args.metric_for_best_model}")
+    logger.info("   - 保留三個關鍵 checkpoints:")
+    logger.info("     1. 最佳評估準確率")
+    logger.info("     2. 最後一個（用於恢復訓練）")
+    logger.info("     3. 訓練時間最短（用於快速實驗）")
 
     # 創建自定義 callback，使用實驗目錄中的日誌文件
     progress_callback = TrainingProgressCallback(exp_dir / "logs.txt")
@@ -366,9 +383,13 @@ def train_and_evaluate(config, trainer):
 
 
 def save_experiment_results(exp_dir, config, train_result, eval_result, trainer):
-    """保存實驗結果"""
-    # 創建效能監控器
+    """保存實驗結果並管理 checkpoints"""
+    # 清理當前實驗的 checkpoints
+    artifacts_dir = exp_dir / "artifacts"
+    checkpoint_manager = CheckpointManager(results_dir=str(artifacts_dir))
+    checkpoint_manager.cleanup_experiment(artifacts_dir)
 
+    # 創建效能監控器
     monitor = PerformanceMonitor(exp_dir)
 
     # 更新序列長度統計
@@ -388,7 +409,6 @@ def save_experiment_results(exp_dir, config, train_result, eval_result, trainer)
         yaml.dump(config_dict, f, allow_unicode=True, sort_keys=False)
 
     # 保存到資料庫
-
     db = Database()
     db.save_experiment(
         ExperimentRecord(

@@ -3,12 +3,53 @@
 """
 
 from typing import Dict
+
+from celery.exceptions import SoftTimeLimitExceeded
+from celery.signals import task_failure
+
 from app.config import Config
+from app.exceptions import (
+    OutOfMemoryError,
+    TrainingError,
+    TrainingTimeoutError,
+)
+from app.logger_config import setup_system_logger
 from app.tasks import celery_app
 from app.train_lora_v2 import main as train_main
 
+# 配置任務錯誤日誌
+task_logger = setup_system_logger(
+    name="celery.task.error", log_file="logs/task_errors.log", console_output=True
+)
 
-@celery_app.task
+
+@task_failure.connect
+def handle_task_failure(sender=None, task_id=None, exception=None, **kwargs):
+    """處理任務失敗的信號處理器
+
+    記錄任務失敗的詳細信息，包括：
+    - 任務 ID
+    - 錯誤類型
+    - 錯誤訊息
+    - 重試次數（如果有）
+    """
+    retry_count = kwargs.get("request", {}).get("retries", 0)
+    task_name = sender.name if sender else "unknown"
+
+    task_logger.error(
+        f"Task {task_name}[{task_id}] failed (retry {retry_count}): "
+        f"{exception.__class__.__name__} - {str(exception)}"
+    )
+
+
+@celery_app.task(
+    autoretry_for=(OutOfMemoryError, SoftTimeLimitExceeded),
+    retry_backoff=True,
+    retry_backoff_max=600,  # 最大延遲 10 分鐘
+    retry_jitter=True,  # 添加隨機變化以避免同時重試
+    max_retries=3,
+    soft_time_limit=3600,  # 1 小時超時
+)
 def train_lora(config: Dict) -> Dict:
     """執行 LoRA 訓練任務
 
@@ -17,19 +58,32 @@ def train_lora(config: Dict) -> Dict:
 
     Returns:
         Dict: 包含訓練結果的字典
+
+    Raises:
+        OutOfMemoryError: 當訓練過程中發生記憶體不足
+        TrainingTimeoutError: 當訓練超過時間限制
+        TrainingError: 其他訓練相關錯誤
     """
+    try:
+        config = Config(**config)
 
-    config = Config(**config)
+        # 執行訓練
+        train_result, eval_result = train_main(config)
 
-    # 執行訓練
-    train_result, eval_result = train_main(config)
-
-    # 返回結果
-    return {
-        "status": "success",
-        "train": {
-            "global_step": train_result.global_step,
-            "runtime": train_result.metrics["train_runtime"],
-        },
-        "eval": {"accuracy": eval_result["eval_accuracy"]},
-    }
+        # 返回結果
+        return {
+            "status": "success",
+            "train": {
+                "global_step": train_result.global_step,
+                "runtime": train_result.metrics["train_runtime"],
+            },
+            "eval": {"accuracy": eval_result["eval_accuracy"]},
+        }
+    except RuntimeError as e:
+        if "out of memory" in str(e).lower():
+            raise OutOfMemoryError(f"訓練過程記憶體不足: {str(e)}")
+        raise TrainingError(f"訓練過程發生錯誤: {str(e)}")
+    except SoftTimeLimitExceeded:
+        raise TrainingTimeoutError("訓練超過時間限制")
+    except Exception as e:
+        raise TrainingError(f"未預期的錯誤: {str(e)}")
