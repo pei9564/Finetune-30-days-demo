@@ -3,6 +3,7 @@
 """
 
 import os
+import time
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -10,9 +11,8 @@ import pytest
 from datasets import Dataset
 from fastapi.testclient import TestClient
 
-from app.api import app
 from app.config import Config
-from app.monitor.audit import init_audit_table
+from app.main import app
 
 
 @pytest.fixture(autouse=True)
@@ -22,13 +22,29 @@ def setup_test_env(monkeypatch):
     results_dir = os.path.join(os.getcwd(), "results")
     os.makedirs(results_dir, exist_ok=True)
 
-    # 初始化資料庫
-    init_audit_table()
-
-    # Mock 模型儲存相關操作
+    # Mock 審計日誌相關操作
     def mock_noop(*args, **kwargs):
         return None
 
+    def mock_get_audit_logs(*args, **kwargs):
+        return [
+            {
+                "id": 1,
+                "user_id": "test_user",
+                "role": "admin",
+                "action": "GET /test",
+                "method": "GET",
+                "path": "/test",
+                "status_code": 200,
+                "timestamp": int(time.time()),
+            }
+        ]
+
+    monkeypatch.setattr("app.auth.audit_log.init_audit_table", mock_noop)
+    monkeypatch.setattr("app.auth.audit_log.save_audit_log", mock_noop)
+    monkeypatch.setattr("app.auth.audit_log.get_audit_logs", mock_get_audit_logs)
+
+    # Mock 模型儲存相關操作
     monkeypatch.setattr("torch.save", mock_noop)
     monkeypatch.setattr("safetensors.torch.save_file", mock_noop)
     monkeypatch.setattr("transformers.Trainer.save_model", mock_noop)
@@ -110,7 +126,7 @@ def mock_celery(monkeypatch):
 
     # Patch Celery task
     monkeypatch.setattr("app.tasks.training.train_lora.delay", mock_delay)
-    monkeypatch.setattr("app.api.AsyncResult", mock_async_result)
+    monkeypatch.setattr("app.main.AsyncResult", mock_async_result)
 
     return mock_task
 

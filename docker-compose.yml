@@ -37,7 +37,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: python -m uvicorn app.api:app --host ${API_HOST} --port ${API_PORT} --reload
+    command: python -m uvicorn app.main:app --host ${API_HOST} --port ${API_PORT} --reload
     ports:
       - "${API_PORT}:${API_PORT}"
     volumes:

@@ -9,6 +9,8 @@ from celery.result import AsyncResult
 from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
+from app.api.routes.audit import router as audit_router
+from app.auth.audit_log import AuditLogMiddleware, init_audit_table
 from app.auth.jwt_utils import (
     check_admin,
     check_task_owner,
@@ -21,6 +23,15 @@ from app.tasks.training import train_lora as train_lora_task
 
 app = FastAPI(title="LoRA Training API")
 setup_error_handlers(app)  # 設置全域錯誤處理
+
+# 初始化審計日誌表
+init_audit_table()
+
+# 註冊審計日誌中間件
+app.add_middleware(AuditLogMiddleware)
+
+# 註冊審計日誌路由
+app.include_router(audit_router)
 
 
 class LoginRequest(BaseModel):
@@ -149,7 +160,7 @@ async def list_experiments(
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
     sort_by: str = Query(
-        "created_at", regex="^(created_at|name|train_runtime|eval_accuracy)$"
+        "created_at", pattern="^(created_at|name|train_runtime|eval_accuracy)$"
     ),
     desc: bool = True,
     limit: int = Query(100, ge=1, le=1000),
@@ -206,7 +217,5 @@ async def get_experiment(
     db = Database()
     experiment = db.get_experiment(experiment_id)
     if experiment is None:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=404, detail="實驗不存在")
     return experiment

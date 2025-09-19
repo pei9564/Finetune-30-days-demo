@@ -93,7 +93,7 @@ class TestAPI:
         assert response.json()["result"]["eval"]["accuracy"] == 0.85
 
         # 檢查 PENDING 狀態
-        with patch("app.api.AsyncResult") as mock_result:
+        with patch("app.main.AsyncResult") as mock_result:
             mock_result.return_value.ready.return_value = False
             mock_result.return_value.status = "PENDING"
 
@@ -102,7 +102,7 @@ class TestAPI:
             assert response.json()["status"] == "PENDING"
 
         # 檢查 FAILURE 狀態
-        with patch("app.api.AsyncResult") as mock_result:
+        with patch("app.main.AsyncResult") as mock_result:
             mock_result.return_value.ready.return_value = True
             mock_result.return_value.failed.return_value = True
             mock_result.return_value.status = "FAILURE"
@@ -183,7 +183,7 @@ class TestAPI:
         2. 查詢無效的任務 ID
         3. 驗證 404 錯誤和錯誤訊息
         """
-        with patch("app.api.AsyncResult") as mock_result:
+        with patch("app.main.AsyncResult") as mock_result:
             mock_result.return_value.backend = MagicMock()
             mock_result.return_value.backend.get_task_meta.side_effect = Exception(
                 "no backend"
@@ -237,7 +237,7 @@ class TestAPI:
             task_id = response.json()["task_id"]
 
             # 檢查任務狀態
-            with patch("app.api.AsyncResult") as mock_async:
+            with patch("app.main.AsyncResult") as mock_async:
                 mock_async.return_value = mock_task
                 response = test_client.get(f"/task/{task_id}")
                 assert response.status_code == 200
@@ -269,7 +269,7 @@ class TestAPI:
             task_id = response.json()["task_id"]
 
             # 檢查任務狀態
-            with patch("app.api.AsyncResult") as mock_async:
+            with patch("app.main.AsyncResult") as mock_async:
                 mock_async.return_value = mock_task
                 response = test_client.get(f"/task/{task_id}")
                 assert response.status_code == 200
