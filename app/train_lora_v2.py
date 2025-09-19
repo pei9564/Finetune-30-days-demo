@@ -23,16 +23,16 @@ from transformers import (
     TrainingArguments,
 )
 
-from app.config import load_config
-from app.data_management import (
+from app.core.config import load_config
+from app.core.logger import setup_progress_logger, setup_system_logger
+from app.data import (
     DataValidator,
     DataVersionManager,
     analyze_distribution,
     get_data_summary,
 )
 from app.db import Database, ExperimentRecord
-from app.logger_config import setup_progress_logger, setup_system_logger
-from app.monitoring import PerformanceMonitor
+from app.monitor import PerformanceMonitor
 from app.tools.checkpoint_manager import CheckpointManager
 
 # 全局 logger，會在 setup_experiment_dir 中初始化
@@ -437,30 +437,60 @@ def save_experiment_results(exp_dir, config, train_result, eval_result, trainer)
 
 
 def setup_experiment_dir(config):
-    """設置實驗目錄"""
+    """設置實驗目錄，添加錯誤處理"""
     global logger
 
-    # 生成時間戳
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    try:
+        # 生成時間戳
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # 建立實驗目錄
-    exp_dir = Path("results") / f"{config.experiment_name}_{timestamp}"
-    exp_dir.mkdir(exist_ok=True)
+        # 確保 results 目錄存在
+        results_dir = Path("results")
+        results_dir.mkdir(exist_ok=True, parents=True)
 
-    # 建立子目錄
-    artifacts_dir = exp_dir / "artifacts"
-    artifacts_dir.mkdir(exist_ok=True)
+        # 建立實驗目錄
+        exp_dir = Path("results") / f"{config.experiment_name}_{timestamp}"
+        exp_dir.mkdir(exist_ok=True, parents=True)
 
-    # 設置日誌文件
-    log_file = exp_dir / "logs.txt"
+        # 建立子目錄
+        artifacts_dir = exp_dir / "artifacts"
+        artifacts_dir.mkdir(exist_ok=True, parents=True)
 
-    # 更新配置中的路徑
-    config.training.output_dir = str(artifacts_dir)
+        # 設置日誌文件
+        log_file = exp_dir / "logs.txt"
 
-    # 設置全局 logger
-    logger = setup_system_logger(name=f"experiment_{timestamp}", log_file=str(log_file))
+        # 更新配置中的路徑
+        config.training.output_dir = str(artifacts_dir)
 
-    return exp_dir
+        # 設置全局 logger
+        logger = setup_system_logger(
+            name=f"experiment_{timestamp}", log_file=str(log_file)
+        )
+
+        return exp_dir
+
+    except (OSError, PermissionError) as e:
+        # 如果創建目錄失敗，嘗試創建臨時目錄
+        import logging
+
+        temp_logger = logging.getLogger(__name__)
+        temp_logger.error(f"創建實驗目錄失敗: {e}")
+
+        try:
+            # 創建臨時目錄作為備用
+            temp_dir = Path("results") / f"temp_{timestamp}"
+            temp_dir.mkdir(exist_ok=True, parents=True)
+
+            # 設置基本的 logger
+            logger = setup_system_logger(
+                name=f"temp_experiment_{timestamp}", log_file=str(temp_dir / "logs.txt")
+            )
+            logger.warning(f"使用臨時目錄: {temp_dir}")
+
+            return temp_dir
+        except Exception as fallback_error:
+            temp_logger.error(f"創建臨時目錄也失敗: {fallback_error}")
+            raise RuntimeError(f"無法創建實驗目錄: {e}")
 
 
 def parse_args():

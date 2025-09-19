@@ -126,16 +126,50 @@ class Database:
             )
 
     def get_experiment(self, experiment_id: str) -> Optional[ExperimentRecord]:
-        """查詢單一實驗記錄"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute(
-                "SELECT * FROM experiments WHERE id = ?", (experiment_id,)
-            )
-            row = cursor.fetchone()
-            if row:
-                return ExperimentRecord(**dict(row))
+        """查詢單一實驗記錄，添加目錄存在性檢查"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute(
+                    "SELECT * FROM experiments WHERE id = ?", (experiment_id,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    experiment = ExperimentRecord(**dict(row))
+                    # 檢查實驗目錄是否存在
+                    if not self._validate_experiment_directory(experiment_id):
+                        import logging
+
+                        logger = logging.getLogger(__name__)
+                        logger.warning(f"實驗目錄不存在: {experiment_id}")
+                        return None
+                    return experiment
+                return None
+        except Exception as e:
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.error(f"查詢實驗記錄失敗: {e}")
             return None
+
+    def _validate_experiment_directory(self, experiment_id: str) -> bool:
+        """驗證實驗目錄是否存在"""
+        try:
+            results_dir = Path("results")
+            if not results_dir.exists():
+                return False
+
+            # 查找匹配的實驗目錄
+            for exp_dir in results_dir.iterdir():
+                if exp_dir.is_dir() and experiment_id in exp_dir.name:
+                    return exp_dir.exists()
+            return False
+        except (OSError, FileNotFoundError) as e:
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.error(f"驗證實驗目錄失敗: {e}")
+            return False
 
     def list_experiments(
         self,

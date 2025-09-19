@@ -5,8 +5,8 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-from app.auth.audit_log import get_audit_logs
 from app.auth.jwt_utils import check_admin
+from app.monitor.audit import get_audit_logs
 
 router = APIRouter(prefix="/audit", tags=["Audit Logs"])
 

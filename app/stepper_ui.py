@@ -10,7 +10,8 @@ from typing import Dict, Optional
 import requests
 import streamlit as st
 import yaml
-from settings import API_URL
+
+from app.core.settings import API_URL
 
 
 def load_default_config() -> Dict:

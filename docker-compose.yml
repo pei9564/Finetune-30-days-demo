@@ -17,9 +17,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: python -m celery -A tasks worker --loglevel=info -P solo
+    command: python -m celery -A app.tasks worker --loglevel=info -P solo
     volumes:
       - ./results:/app/results
+      - ./app:/app/app
       - ./config:/app/config
     depends_on:
       redis:

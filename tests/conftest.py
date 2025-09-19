@@ -11,7 +11,7 @@ import pytest
 from datasets import Dataset
 from fastapi.testclient import TestClient
 
-from app.config import Config
+from app.core.config import Config
 from app.main import app
 
 
@@ -40,9 +40,9 @@ def setup_test_env(monkeypatch):
             }
         ]
 
-    monkeypatch.setattr("app.auth.audit_log.init_audit_table", mock_noop)
-    monkeypatch.setattr("app.auth.audit_log.save_audit_log", mock_noop)
-    monkeypatch.setattr("app.auth.audit_log.get_audit_logs", mock_get_audit_logs)
+    monkeypatch.setattr("app.monitor.audit.init_audit_table", mock_noop)
+    monkeypatch.setattr("app.monitor.audit.save_audit_log", mock_noop)
+    monkeypatch.setattr("app.monitor.audit.get_audit_logs", mock_get_audit_logs)
 
     # Mock 模型儲存相關操作
     monkeypatch.setattr("torch.save", mock_noop)
@@ -126,7 +126,7 @@ def mock_celery(monkeypatch):
 
     # Patch Celery task
     monkeypatch.setattr("app.tasks.training.train_lora.delay", mock_delay)
-    monkeypatch.setattr("app.main.AsyncResult", mock_async_result)
+    monkeypatch.setattr("app.api.routes.task.AsyncResult", mock_async_result)
 
     return mock_task
 

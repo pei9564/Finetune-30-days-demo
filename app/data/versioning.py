@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 
 from datasets import Dataset, load_dataset
 
-from .dataset_analyzer import (
+from .analysis import (
     analyze_distribution,
     get_data_summary,
     save_analysis_report,

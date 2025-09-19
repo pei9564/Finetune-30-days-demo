@@ -21,7 +21,7 @@ spec:
       - name: api
         image: finetune-app:latest  # 統一映像
         imagePullPolicy: Never  # 使用本地映像
-        command: ["python", "-m", "uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+        command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
         ports:
         - containerPort: 8000
           name: http

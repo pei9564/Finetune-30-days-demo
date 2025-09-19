@@ -21,7 +21,7 @@ spec:
       - name: worker
         image: finetune-app:latest  # 統一映像
         imagePullPolicy: Never  # 使用本地映像
-        command: ["python", "-m", "celery", "-A", "tasks", "worker", "--loglevel=info", "-P", "solo"]
+        command: ["python", "-m", "celery", "-A", "app.tasks", "worker", "--loglevel=info", "-P", "solo"]
         env:
         - name: CELERY_BROKER_URL
           valueFrom:

@@ -21,7 +21,7 @@ spec:
       - name: ui
         image: finetune-app:latest  # 統一映像
         imagePullPolicy: Never  # 使用本地映像
-        command: ["python", "-m", "streamlit", "run", "stepper_ui.py"]
+        command: ["python", "-m", "streamlit", "run", "app/stepper_ui.py"]
         ports:
         - containerPort: 8501
           name: http

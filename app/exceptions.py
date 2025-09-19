@@ -43,6 +43,24 @@ class ModelError(TrainingError):
     pass
 
 
+class DataIntegrityError(Exception):
+    """資料完整性錯誤"""
+
+    pass
+
+
+class ExperimentNotFoundError(Exception):
+    """實驗不存在錯誤"""
+
+    pass
+
+
+class FileSystemError(Exception):
+    """檔案系統錯誤"""
+
+    pass
+
+
 class ErrorResponse:
     """錯誤響應格式化器"""
 
@@ -83,6 +101,28 @@ def setup_error_handlers(app: FastAPI) -> None:
     async def handle_training_error(request: Request, exc: TrainingError):
         return JSONResponse(
             status_code=500, content=ErrorResponse.create("TRAINING_ERROR", str(exc))
+        )
+
+    @app.exception_handler(DataIntegrityError)
+    async def handle_data_integrity_error(request: Request, exc: DataIntegrityError):
+        return JSONResponse(
+            status_code=410,
+            content=ErrorResponse.create("DATA_INTEGRITY_ERROR", str(exc)),
+        )
+
+    @app.exception_handler(ExperimentNotFoundError)
+    async def handle_experiment_not_found(
+        request: Request, exc: ExperimentNotFoundError
+    ):
+        return JSONResponse(
+            status_code=404,
+            content=ErrorResponse.create("EXPERIMENT_NOT_FOUND", str(exc)),
+        )
+
+    @app.exception_handler(FileSystemError)
+    async def handle_filesystem_error(request: Request, exc: FileSystemError):
+        return JSONResponse(
+            status_code=500, content=ErrorResponse.create("FILESYSTEM_ERROR", str(exc))
         )
 
     @app.exception_handler(Exception)

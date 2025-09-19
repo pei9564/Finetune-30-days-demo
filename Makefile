@@ -56,7 +56,7 @@ test:
 		$(check_env_exists) \
 		source $$(conda info --base)/etc/profile.d/conda.sh && \
 		conda activate $$ENV_NAME && \
-		cd $(PWD) && PYTHONPATH=$(PWD) python -m pytest app/tests/ -v'
+		cd $(PWD) && PYTHONPATH=$(PWD) python -m pytest tests/ -v'
 
 # 運行所有測試（詳細模式）
 test-v:
@@ -66,7 +66,7 @@ test-v:
 		$(check_env_exists) \
 		source $$(conda info --base)/etc/profile.d/conda.sh && \
 		conda activate $$ENV_NAME && \
-		cd $(PWD) && PYTHONPATH=$(PWD) python -m pytest app/tests/ -v -s'
+		cd $(PWD) && PYTHONPATH=$(PWD) python -m pytest tests/ -v -s'
 
 
 # ==============================================================================
@@ -174,24 +174,24 @@ define run_data_tool
 		echo "🔧 使用環境 \"$$ENV_NAME\" $(1)..."; \
 		source $$(conda info --base)/etc/profile.d/conda.sh && \
 		conda activate $$ENV_NAME && \
-		cd $(PWD) && PYTHONPATH=$(PWD) PYTHONWARNINGS="ignore::RuntimeWarning" python -m app.data_management.$(2) \
+		cd $(PWD) && PYTHONPATH=$(PWD) PYTHONWARNINGS="ignore::RuntimeWarning" python -m app.data.$(2) \
 	'
 endef
 
 # 分析資料集分布
 data-analyze:
 	@echo "📊 分析資料集分布..."
-	$(call run_data_tool,"分析資料","dataset_analyzer")
+	$(call run_data_tool,"分析資料","analysis")
 
 # 驗證資料集品質
 data-validate:
 	@echo "🔍 驗證資料集品質..."
-	$(call run_data_tool,"驗證資料","data_validator")
+	$(call run_data_tool,"驗證資料","validation")
 
 # 管理資料版本
 data-versions:
 	@echo "📦 管理資料版本..."
-	$(call run_data_tool,"管理版本","version_manager")
+	$(call run_data_tool,"管理版本","versioning")
 
 # 查看實驗記錄
 db-list:
@@ -355,7 +355,7 @@ serve:
 			$(check_env_exists) \
 			source $$(conda info --base)/etc/profile.d/conda.sh && \
 			conda activate $$ENV_NAME && \
-			cd $(PWD) && PYTHONPATH=$(PWD) python app/inference_api.py \
+			cd $(PWD) && PYTHONPATH=$(PWD) python app/tasks/inference.py \
 		'; \
 	else \
 		$(find_latest_experiment); \
@@ -365,7 +365,7 @@ serve:
 			$(check_env_exists) \
 			source $$(conda info --base)/etc/profile.d/conda.sh && \
 			conda activate $$ENV_NAME && \
-			cd $(PWD) && PYTHONPATH=$(PWD) python app/inference_api.py \
+			cd $(PWD) && PYTHONPATH=$(PWD) python app/tasks/inference.py \
 		'; \
 	fi
 

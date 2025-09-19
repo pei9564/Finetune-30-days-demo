@@ -7,13 +7,13 @@ from typing import Dict
 from celery.exceptions import SoftTimeLimitExceeded
 from celery.signals import task_failure
 
-from app.config import Config
+from app.core.config import Config
+from app.core.logger import setup_system_logger
 from app.exceptions import (
     OutOfMemoryError,
     TrainingError,
     TrainingTimeoutError,
 )
-from app.logger_config import setup_system_logger
 from app.tasks import celery_app
 from app.train_lora_v2 import main as train_main
 

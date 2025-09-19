@@ -99,20 +99,20 @@ make cleanup
 
 ### Celery Worker
 - **映像**: finetune-app:latest
-- **命令**: `python -m celery -A tasks worker --loglevel=info -P solo`
+- **命令**: `python -m celery -A app.tasks worker --loglevel=info -P solo`
 - **副本數**: 2 (可調整)
 - **儲存**: 共用 results PVC
 
 ### FastAPI
 - **映像**: finetune-app:latest
-- **命令**: `python -m uvicorn api:app --host 0.0.0.0 --port 8000 --reload`
+- **命令**: `python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`
 - **端口**: 8000 (NodePort: 30080)
 - **健康檢查**: `GET /docs`
 - **儲存**: 共用 results PVC
 
 ### Streamlit UI
 - **映像**: finetune-app:latest
-- **命令**: `python -m streamlit run stepper_ui.py`
+- **命令**: `python -m streamlit run app/stepper_ui.py`
 - **端口**: 8501 (NodePort: 30501)
 - **健康檢查**: `GET /_stcore/health`
 - **儲存**: 共用 results PVC
