@@ -18,6 +18,8 @@ fastapi>=0.100.0
 uvicorn>=0.23.0
 streamlit>=1.26.0
 PyJWT>=2.8.0  # JWT 支援
+pydeps>=1.12.0  # 依賴圖生成
+graphviz>=0.20.1  # 依賴圖生成所需
 # Testing dependencies
 pytest>=7.4.0
 pytest-asyncio>=0.21.1

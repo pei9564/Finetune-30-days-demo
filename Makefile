@@ -1,5 +1,5 @@
 .PHONY: setup-conda run-local logs-local analyze-metrics analyze-by-model analyze-by-dataset \
-        test test-v \
+        test test-v test-integration deps \
         data-analyze data-validate data-versions db-list \
         start-services stop-services restart-services logs-services logs-service \
         k8s-setup k8s-build k8s-build-fast k8s-deploy k8s-verify k8s-cleanup \
@@ -68,6 +68,44 @@ test-v:
 		conda activate $$ENV_NAME && \
 		cd $(PWD) && PYTHONPATH=$(PWD) python -m pytest tests/ -v -s'
 
+# 生成依賴圖
+deps:
+	@echo "📊 生成依賴圖..."
+	@mkdir -p docs
+	@if ! command -v dot &> /dev/null; then \
+		echo "❌ 找不到 graphviz，請先安裝："; \
+		if [[ "$$(uname)" == "Darwin" ]]; then \
+			echo "🍎 macOS 安裝指令："; \
+			echo "  brew install graphviz"; \
+		elif [[ "$$(uname)" == "Linux" ]]; then \
+			echo "🐧 Linux 安裝指令："; \
+			echo "  sudo apt-get install graphviz"; \
+		else \
+			echo "❓ 其他系統："; \
+			echo "  請參考 graphviz 官方文件安裝指引"; \
+		fi; \
+		echo ""; \
+		echo "💡 安裝完成後重新執行 make deps"; \
+		exit 1; \
+	fi
+	@bash -c '\
+		$(detect_env) \
+		$(check_env_exists) \
+		source $$(conda info --base)/etc/profile.d/conda.sh && \
+		conda activate $$ENV_NAME && \
+		cd $(PWD) && pydeps app \
+			--only app \
+			--cluster \
+			--min-cluster-size=2 \
+			--max-cluster-size=10 \
+			--keep-target-cluster \
+			--rankdir=LR \
+			--max-bacon=10 \
+			--start-color=0 \
+			-xx numpy,torch,transformers,datasets,evaluate,fastapi,celery,peft,psutil,yaml,pandas \
+			--rmprefix app. \
+			-T svg -o docs/deps.svg'
+	@echo "✅ 依賴圖已輸出到 docs/deps.svg"
 
 # ==============================================================================
 # 本地訓練相關命令
