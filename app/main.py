@@ -12,7 +12,7 @@ from app.api.routes import (
     train_router,
 )
 from app.exceptions import setup_error_handlers
-from app.monitor.audit import AuditLogMiddleware, init_audit_table
+from app.monitor.audit_utils import AuditLogMiddleware, init_audit_table
 
 app = FastAPI(title="LoRA Training API")
 setup_error_handlers(app)  # 設置全域錯誤處理

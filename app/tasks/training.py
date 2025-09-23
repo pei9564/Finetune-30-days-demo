@@ -15,7 +15,14 @@ from app.exceptions import (
     TrainingTimeoutError,
 )
 from app.tasks import celery_app
-from app.train_lora_v2 import main as train_main
+from app.train import (
+    load_and_process_data,
+    load_model_and_tokenizer,
+    setup_device,
+    setup_lora,
+    setup_training,
+    train_and_evaluate,
+)
 
 # 配置任務錯誤日誌
 task_logger = setup_system_logger(
@@ -67,8 +74,15 @@ def train_lora(config: Dict) -> Dict:
     try:
         config = Config(**config)
 
-        # 執行訓練
-        train_result, eval_result = train_main(config)
+        # 設置訓練環境
+        device = setup_device(config)
+        model, tokenizer = load_model_and_tokenizer(config, device)
+        train_dataset, eval_dataset = load_and_process_data(config, tokenizer)
+        model = setup_lora(config, model, device)
+        trainer = setup_training(
+            config, model, train_dataset, eval_dataset, "results/test"
+        )
+        train_result, eval_result = train_and_evaluate(config, trainer)
 
         # 返回結果
         return {

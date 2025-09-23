@@ -125,6 +125,13 @@ app/
 │   ├── analysis.py
 │   └── versioning.py
 ├── monitor/             # 效能 & 審計
+│   ├── logging_utils.py
+│   ├── system_metrics.py
+│   └── audit_utils.py
+├── train/               # 訓練模組
+│   ├── preprocess.py
+│   ├── runner.py
+│   └── evaluator.py
 ├── tools/               # 工具
 │   ├── analyze_metrics.py
 │   └── checkpoint_manager.py

@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.monitor.audit import get_audit_logs, save_audit_log
+from app.monitor.audit_utils import get_audit_logs, save_audit_log
 
 
 class TestAuditLog:

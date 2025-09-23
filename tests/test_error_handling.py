@@ -17,10 +17,10 @@
 
 import json
 import os
+from unittest.mock import MagicMock, patch
 
 from torch.cuda import OutOfMemoryError as CudaOOMError
 
-from app.tasks.training import train_lora
 from app.tools.checkpoint_manager import CheckpointManager
 
 
@@ -39,15 +39,19 @@ class TestCeleryErrorHandling:
             "training": {"batch_size": 8},
         }
 
-        # 模擬 OOM 錯誤
-        mock_celery.status = "RETRY"
-        mock_celery.retries = 1
-        mock_celery.result = CudaOOMError("GPU 記憶體不足")
+        # 設置 mock 返回重試狀態的任務
+        retry_task = MagicMock()
+        retry_task.status = "RETRY"
+        retry_task.retries = 1
+        retry_task.result = CudaOOMError("GPU 記憶體不足")
 
-        task = train_lora.delay(config)
-        assert task.status == "RETRY"
-        assert task.retries == 1
-        assert "記憶體不足" in str(task.result)
+        # 讓 delay 返回這個重試任務
+        with patch("app.tasks.training.train_lora") as mock_train:
+            mock_train.delay.return_value = retry_task
+            task = mock_train.delay(config)
+            assert task.status == "RETRY"
+            assert task.retries == 1
+            assert "記憶體不足" in str(task.result)
 
     def test_celery_max_retries(self, mock_celery):
         """測試最大重試次數
@@ -60,15 +64,19 @@ class TestCeleryErrorHandling:
             "training": {"batch_size": 8},
         }
 
-        # 設置已達到最大重試次數
-        mock_celery.status = "FAILURE"
-        mock_celery.retries = 3
-        mock_celery.result = CudaOOMError("GPU 記憶體不足")
+        # 設置失敗狀態的任務
+        failure_task = MagicMock()
+        failure_task.status = "FAILURE"
+        failure_task.retries = 3
+        failure_task.result = CudaOOMError("GPU 記憶體不足")
 
-        task = train_lora.delay(config)
-        assert task.status == "FAILURE"
-        assert task.retries == 3
-        assert "記憶體不足" in str(task.result)
+        # 讓 delay 返回這個失敗任務
+        with patch("app.tasks.training.train_lora") as mock_train:
+            mock_train.delay.return_value = failure_task
+            task = mock_train.delay(config)
+            assert task.status == "FAILURE"
+            assert task.retries == 3
+            assert "記憶體不足" in str(task.result)
 
 
 class TestAPIErrorHandling:

@@ -3,6 +3,7 @@
 """
 
 import os
+import sys
 import time
 from unittest.mock import MagicMock
 
@@ -11,8 +12,13 @@ import pytest
 from datasets import Dataset
 from fastapi.testclient import TestClient
 
-from app.core.config import Config
-from app.main import app
+# Mock Celery before any app imports
+mock_celery_app = MagicMock()
+mock_celery_app.task = lambda *args, **kwargs: lambda func: func
+sys.modules["app.tasks.celery_app"] = mock_celery_app
+
+from app.core.config import Config  # noqa: E402
+from app.main import app  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -21,6 +27,10 @@ def setup_test_env(monkeypatch):
     # 確保資料庫目錄存在
     results_dir = os.path.join(os.getcwd(), "results")
     os.makedirs(results_dir, exist_ok=True)
+
+    # Mock Celery settings
+    monkeypatch.setenv("CELERY_BROKER_URL", "memory://")
+    monkeypatch.setenv("CELERY_RESULT_BACKEND", "cache+memory://")
 
     # Mock 審計日誌相關操作
     def mock_noop(*args, **kwargs):
@@ -40,15 +50,50 @@ def setup_test_env(monkeypatch):
             }
         ]
 
-    monkeypatch.setattr("app.monitor.audit.init_audit_table", mock_noop)
-    monkeypatch.setattr("app.monitor.audit.save_audit_log", mock_noop)
-    monkeypatch.setattr("app.monitor.audit.get_audit_logs", mock_get_audit_logs)
+    monkeypatch.setattr("app.monitor.audit_utils.init_audit_table", mock_noop)
+    monkeypatch.setattr("app.monitor.audit_utils.save_audit_log", mock_noop)
+    monkeypatch.setattr("app.monitor.audit_utils.get_audit_logs", mock_get_audit_logs)
 
     # Mock 模型儲存相關操作
     monkeypatch.setattr("torch.save", mock_noop)
     monkeypatch.setattr("safetensors.torch.save_file", mock_noop)
     monkeypatch.setattr("transformers.Trainer.save_model", mock_noop)
     monkeypatch.setattr("transformers.Trainer.save_state", mock_noop)
+
+    # 全局 Mock AsyncResult 以避免 DisabledBackend 问题
+    def mock_async_result_global(task_id):
+        mock_task = MagicMock()
+        mock_task.id = task_id
+        mock_task.status = "SUCCESS"
+        mock_task.result = {
+            "status": "success",
+            "train": {"global_step": 100},
+            "eval": {"accuracy": 0.85},
+        }
+        mock_task.ready.return_value = True
+        mock_task.failed.return_value = False
+
+        # 创建完整的 backend mock
+        mock_backend = MagicMock()
+        task_meta = {
+            "status": "SUCCESS",
+            "result": mock_task.result,
+            "task_id": task_id,
+        }
+        mock_backend.get_task_meta.return_value = task_meta
+        mock_backend._get_task_meta_for.return_value = task_meta
+        mock_backend.as_tuple.return_value = (
+            task_meta["status"],
+            task_meta["result"],
+            None,
+        )
+        mock_task.backend = mock_backend
+
+        return mock_task
+
+    # 在所有可能的地方 patch AsyncResult
+    monkeypatch.setattr("celery.result.AsyncResult", mock_async_result_global)
+    monkeypatch.setattr("app.api.routes.task.AsyncResult", mock_async_result_global)
 
 
 @pytest.fixture
@@ -96,39 +141,99 @@ def test_client(mock_auth, auth_headers):
 @pytest.fixture
 def mock_celery(monkeypatch):
     """Mock Celery 任務"""
-    mock_task = MagicMock()
-    mock_task.id = "test-task-123"
-    mock_task.status = "SUCCESS"
-    mock_task.retries = 0
-    mock_task.result = {
-        "status": "success",
-        "train": {"global_step": 100},
-        "eval": {"accuracy": 0.85},
-    }
-    mock_task.ready.return_value = True
-    mock_task.failed.return_value = False
 
-    # Mock backend
-    mock_backend = MagicMock()
-    mock_backend.get_task_meta.return_value = {
-        "status": "SUCCESS",
-        "result": mock_task.result,
-    }
-    mock_task.backend = mock_backend
+    def create_task_result(task_id, status="SUCCESS", result=None, error=None):
+        """创建一个任务结果对象"""
+        task = MagicMock()
+        task.id = task_id  # 確保這是字符串
+        task.status = status
+        task.result = error if error else result
+        task.ready.return_value = status != "PENDING"
+        task.failed.return_value = status == "FAILURE"
 
-    # Mock delay
+        # 设置后端
+        task.backend = MagicMock()
+        task_meta = {
+            "status": status,
+            "result": task.result,
+            "task_id": task_id,
+        }
+        task.backend.get_task_meta.return_value = task_meta
+        task.backend._get_task_meta_for.return_value = task_meta
+        task.backend.as_tuple.return_value = (status, task.result, None)
+        return task
+
+    # 预定义的任务结果
+    success_result = create_task_result(
+        "test-task-123",
+        status="SUCCESS",
+        result={
+            "status": "success",
+            "train": {"global_step": 100},
+            "eval": {"accuracy": 0.85},
+        },
+    )
+
+    error_result = create_task_result(
+        "error-task-123", status="FAILURE", error=ValueError("訓練數據集不能為空")
+    )
+
+    oom_result = create_task_result(
+        "error-task-456",
+        status="FAILURE",
+        error=RuntimeError("GPU 記憶體不足: 已使用 15.0GB / 總計 16.0GB"),
+    )
+
+    pending_result = create_task_result("pending-task", status="PENDING")
+
+    invalid_result = MagicMock()
+    invalid_result.id = "invalid-task-id"
+    invalid_result.backend = MagicMock()
+    invalid_result.backend.get_task_meta.side_effect = Exception("Task not found")
+    invalid_result.backend._get_task_meta_for.side_effect = Exception("Task not found")
+
+    # 創建 mock train_lora 任務 - 確保 task.id 是字符串
+    mock_train_lora = MagicMock()
+
     def mock_delay(*args, **kwargs):
-        return mock_task
+        # 根據配置返回不同的任務結果
+        if "config" in kwargs and isinstance(kwargs["config"], dict):
+            exp_name = kwargs["config"].get("experiment_name", "").lower()
+            if "error" in exp_name:
+                return error_result
+            elif "oom" in exp_name:
+                return oom_result
+        return success_result
 
-    # Mock AsyncResult
-    mock_async_result = MagicMock()
-    mock_async_result.return_value = mock_task
+    mock_train_lora.delay = MagicMock(side_effect=mock_delay)
+    mock_train_lora.apply_async = MagicMock(side_effect=mock_delay)
+    mock_train_lora.__name__ = "train_lora"
 
-    # Patch Celery task
-    monkeypatch.setattr("app.tasks.training.train_lora.delay", mock_delay)
-    monkeypatch.setattr("app.api.routes.task.AsyncResult", mock_async_result)
+    # Mock AsyncResult 类
+    def mock_async_result_class(task_id):
+        if task_id == "invalid-task-id":
+            return invalid_result
+        elif task_id == "error-task-123":
+            return error_result
+        elif task_id == "error-task-456":
+            return oom_result
+        elif task_id == "pending-task":
+            return pending_result
+        else:
+            return success_result
 
-    return mock_task
+    # 設置所有的 mock - 使用 try/except 避免模組導入問題
+    monkeypatch.setattr("app.api.routes.train.train_lora_task", mock_train_lora)
+    monkeypatch.setattr("app.api.routes.task.AsyncResult", mock_async_result_class)
+    monkeypatch.setattr("celery.result.AsyncResult", mock_async_result_class)
+
+    # 嘗試 mock training 模組，如果失敗就跳過
+    try:
+        monkeypatch.setattr("app.tasks.training.train_lora", mock_train_lora)
+    except (AttributeError, ImportError):
+        pass
+
+    return mock_train_lora
 
 
 @pytest.fixture

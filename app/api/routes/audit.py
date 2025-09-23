@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from app.auth.jwt_utils import check_admin
-from app.monitor.audit import get_audit_logs
+from app.monitor.audit_utils import get_audit_logs
 
 router = APIRouter(prefix="/audit", tags=["Audit Logs"])
 

@@ -93,25 +93,15 @@ class TestAPI:
         assert response.json()["result"]["eval"]["accuracy"] == 0.85
 
         # 檢查 PENDING 狀態
-        with patch("app.main.AsyncResult") as mock_result:
-            mock_result.return_value.ready.return_value = False
-            mock_result.return_value.status = "PENDING"
-
-            response = test_client.get("/task/test-task-123")
-            assert response.status_code == 200
-            assert response.json()["status"] == "PENDING"
+        response = test_client.get("/task/pending-task")
+        assert response.status_code == 200
+        assert response.json()["status"] == "PENDING"
 
         # 檢查 FAILURE 狀態
-        with patch("app.main.AsyncResult") as mock_result:
-            mock_result.return_value.ready.return_value = True
-            mock_result.return_value.failed.return_value = True
-            mock_result.return_value.status = "FAILURE"
-            mock_result.return_value.result = Exception("Test error")
-
-            response = test_client.get("/task/test-task-123")
-            assert response.status_code == 200
-            assert response.json()["status"] == "FAILURE"
-            assert "Test error" in response.json()["error"]
+        response = test_client.get("/task/error-task-123")
+        assert response.status_code == 200
+        assert response.json()["status"] == "FAILURE"
+        assert "訓練數據集不能為空" in str(response.json())
 
     def test_simulate_error(self, test_app, test_client):
         """測試模擬錯誤端點
@@ -183,11 +173,18 @@ class TestAPI:
         2. 查詢無效的任務 ID
         3. 驗證 404 錯誤和錯誤訊息
         """
-        with patch("app.main.AsyncResult") as mock_result:
-            mock_result.return_value.backend = MagicMock()
-            mock_result.return_value.backend.get_task_meta.side_effect = Exception(
-                "no backend"
+        with patch("app.api.routes.task.AsyncResult") as mock_result:
+            # 設置無效任務的 mock - 模擬後端錯誤
+            mock_invalid_task = MagicMock()
+            mock_invalid_task.id = "invalid-task-id"
+            mock_invalid_task.backend = MagicMock()
+            mock_invalid_task.backend.get_task_meta.side_effect = Exception(
+                "Task not found"
             )
+            mock_invalid_task.backend._get_task_meta_for.side_effect = Exception(
+                "Task not found"
+            )
+            mock_result.return_value = mock_invalid_task
 
             response = test_client.get("/task/invalid-task-id")
             assert response.status_code == 404
@@ -214,64 +211,81 @@ class TestAPI:
            - 提交訓練任務
            - 檢查任務狀態和錯誤訊息
         """
-        # 模擬空數據集錯誤
-        with patch("app.tasks.training.train_lora.delay") as mock_train:
-            mock_task = MagicMock()
-            mock_task.id = "error-task-123"
-            mock_task.ready.return_value = True
-            mock_task.failed.return_value = True
-            mock_task.result = ValueError("訓練數據集不能為空")
-            mock_task.status = "FAILURE"
-            mock_task.backend = MagicMock()
-            mock_task.backend.get_task_meta.return_value = {
-                "status": "FAILURE",
-                "result": mock_task.result,
-            }
-            mock_train.return_value = mock_task
+        from unittest.mock import MagicMock, patch
 
-            # 提交任務
-            response = test_client.post(
-                "/train", json={"config": test_config.model_dump()}
-            )
+        # 創建 mock task 對象
+        class MockTask:
+            def __init__(self, task_id):
+                self.id = str(task_id)  # 確保是字符串
+
+        # 創建 mock AsyncResult 類
+        class MockAsyncResult:
+            def __init__(self, task_id):
+                self.id = task_id
+                if task_id == "error-task-123":
+                    self.status = "FAILURE"
+                    self.result = ValueError("訓練數據集不能為空")
+                elif task_id == "oom-task-456":
+                    self.status = "FAILURE"
+                    self.result = RuntimeError(
+                        "GPU 記憶體不足: 已使用 15.0GB / 總計 16.0GB"
+                    )
+                else:
+                    self.status = "SUCCESS"
+                    self.result = {"status": "success"}
+
+                # 設置 backend
+                self.backend = MagicMock()
+                task_meta = {
+                    "status": self.status,
+                    "result": self.result,
+                    "task_id": self.id,
+                }
+                self.backend.get_task_meta.return_value = task_meta
+                self.backend._get_task_meta_for.return_value = task_meta
+                self.backend.as_tuple.return_value = (self.status, self.result, None)
+
+            def ready(self):
+                return True
+
+            def failed(self):
+                return self.status == "FAILURE"
+
+        # 直接 patch train endpoint 中使用的 train_lora_task 和 AsyncResult
+        with (
+            patch("app.api.routes.train.train_lora_task") as mock_task,
+            patch("app.api.routes.task.AsyncResult", side_effect=MockAsyncResult),
+        ):
+            # 模擬空數據集錯誤
+            error_task = MockTask("error-task-123")
+            mock_task.delay.return_value = error_task
+
+            config_dict = test_config.model_dump()
+            config_dict["experiment_name"] = "error_test"
+            response = test_client.post("/train", json={"config": config_dict})
             assert response.status_code == 200
             task_id = response.json()["task_id"]
+            assert task_id == "error-task-123"
 
             # 檢查任務狀態
-            with patch("app.main.AsyncResult") as mock_async:
-                mock_async.return_value = mock_task
-                response = test_client.get(f"/task/{task_id}")
-                assert response.status_code == 200
-                assert response.json()["status"] == "FAILURE"
-                assert "訓練數據集不能為空" in str(response.json())
+            response = test_client.get(f"/task/{task_id}")
+            assert response.status_code == 200
+            assert response.json()["status"] == "FAILURE"
+            assert "訓練數據集不能為空" in str(response.json())
 
-        # 模擬記憶體不足錯誤
-        with patch("app.tasks.training.train_lora.delay") as mock_train:
-            mock_task = MagicMock()
-            mock_task.id = "error-task-456"
-            mock_task.ready.return_value = True
-            mock_task.failed.return_value = True
-            mock_task.result = RuntimeError(
-                "GPU 記憶體不足: 已使用 15.0GB / 總計 16.0GB"
-            )
-            mock_task.status = "FAILURE"
-            mock_task.backend = MagicMock()
-            mock_task.backend.get_task_meta.return_value = {
-                "status": "FAILURE",
-                "result": mock_task.result,
-            }
-            mock_train.return_value = mock_task
+            # 模擬記憶體不足錯誤
+            oom_task = MockTask("oom-task-456")
+            mock_task.delay.return_value = oom_task
 
-            # 提交任務
-            response = test_client.post(
-                "/train", json={"config": test_config.model_dump()}
-            )
+            config_dict = test_config.model_dump()
+            config_dict["experiment_name"] = "oom_test"
+            response = test_client.post("/train", json={"config": config_dict})
             assert response.status_code == 200
             task_id = response.json()["task_id"]
+            assert task_id == "oom-task-456"
 
             # 檢查任務狀態
-            with patch("app.main.AsyncResult") as mock_async:
-                mock_async.return_value = mock_task
-                response = test_client.get(f"/task/{task_id}")
-                assert response.status_code == 200
-                assert response.json()["status"] == "FAILURE"
-                assert "GPU 記憶體不足" in str(response.json())
+            response = test_client.get(f"/task/{task_id}")
+            assert response.status_code == 200
+            assert response.json()["status"] == "FAILURE"
+            assert "GPU 記憶體不足" in str(response.json())
