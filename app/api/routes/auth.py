@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from app.auth.jwt_utils import create_token
 
-router = APIRouter(tags=["Authentication"])
+router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 class LoginRequest(BaseModel):

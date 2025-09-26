@@ -3,9 +3,9 @@
 使用 SQLite 儲存實驗結果
 """
 
+import os
 import sqlite3
 from datetime import datetime
-from pathlib import Path
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel
@@ -56,7 +56,7 @@ class Database:
     def _ensure_db(self):
         """確保資料庫和資料表存在"""
         # 確保目錄存在
-        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
 
         # 建立資料表
         with sqlite3.connect(self.db_path) as conn:
@@ -155,14 +155,15 @@ class Database:
     def _validate_experiment_directory(self, experiment_id: str) -> bool:
         """驗證實驗目錄是否存在"""
         try:
-            results_dir = Path("results")
-            if not results_dir.exists():
+            results_dir = "results"
+            if not os.path.exists(results_dir):
                 return False
 
             # 查找匹配的實驗目錄
-            for exp_dir in results_dir.iterdir():
-                if exp_dir.is_dir() and experiment_id in exp_dir.name:
-                    return exp_dir.exists()
+            for item in os.listdir(results_dir):
+                item_path = os.path.join(results_dir, item)
+                if os.path.isdir(item_path) and experiment_id in item:
+                    return os.path.exists(item_path)
             return False
         except (OSError, FileNotFoundError) as e:
             import logging

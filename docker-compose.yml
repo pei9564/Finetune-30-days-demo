@@ -22,6 +22,7 @@ services:
       - ./results:/app/results
       - ./app:/app/app
       - ./config:/app/config
+      - ./data:/app/data
     depends_on:
       redis:
         condition: service_healthy
@@ -45,6 +46,7 @@ services:
       - ./results:/app/results
       - ./app:/app/app
       - ./config:/app/config
+      - ./data:/app/data
     depends_on:
       redis:
         condition: service_healthy

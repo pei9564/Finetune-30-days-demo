@@ -8,13 +8,13 @@ import logging
 import os
 import time
 from datetime import datetime
-from pathlib import Path
 
 import yaml
 
 from app.core.config import load_config
 from app.core.logger import setup_system_logger
 from app.db import Database, ExperimentRecord
+from app.models.model_registry import ModelCard, registry
 from app.monitor import SystemMetricsMonitor, save_training_metrics
 from app.tools.checkpoint_manager import CheckpointManager
 from app.train import (
@@ -39,27 +39,25 @@ def setup_experiment_dir(config):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         # 確保 results 目錄存在
-        results_dir = Path("results")
-        results_dir.mkdir(exist_ok=True, parents=True)
+        results_dir = "results"
+        os.makedirs(results_dir, exist_ok=True)
 
         # 建立實驗目錄
-        exp_dir = Path("results") / f"{config.experiment_name}_{timestamp}"
-        exp_dir.mkdir(exist_ok=True, parents=True)
+        exp_dir = os.path.join("results", f"{config.experiment_name}_{timestamp}")
+        os.makedirs(exp_dir, exist_ok=True)
 
         # 建立子目錄
-        artifacts_dir = exp_dir / "artifacts"
-        artifacts_dir.mkdir(exist_ok=True, parents=True)
+        artifacts_dir = os.path.join(exp_dir, "artifacts")
+        os.makedirs(artifacts_dir, exist_ok=True)
 
         # 設置日誌文件
-        log_file = exp_dir / "logs.txt"
+        log_file = os.path.join(exp_dir, "logs.txt")
 
         # 更新配置中的路徑
-        config.training.output_dir = str(artifacts_dir)
+        config.training.output_dir = artifacts_dir
 
         # 設置全局 logger
-        logger = setup_system_logger(
-            name=f"experiment_{timestamp}", log_file=str(log_file)
-        )
+        logger = setup_system_logger(name=f"experiment_{timestamp}", log_file=log_file)
 
         return exp_dir
 
@@ -72,12 +70,13 @@ def setup_experiment_dir(config):
 
         try:
             # 創建臨時目錄作為備用
-            temp_dir = Path("results") / f"temp_{timestamp}"
-            temp_dir.mkdir(exist_ok=True, parents=True)
+            temp_dir = os.path.join("results", f"temp_{timestamp}")
+            os.makedirs(temp_dir, exist_ok=True)
 
             # 設置基本的 logger
+            temp_log_file = os.path.join(temp_dir, "logs.txt")
             logger = setup_system_logger(
-                name=f"temp_experiment_{timestamp}", log_file=str(temp_dir / "logs.txt")
+                name=f"temp_experiment_{timestamp}", log_file=temp_log_file
             )
             logger.warning(f"使用臨時目錄: {temp_dir}")
 
@@ -90,8 +89,8 @@ def setup_experiment_dir(config):
 def save_experiment_results(exp_dir, config, train_result, eval_result, trainer):
     """保存實驗結果並管理 checkpoints"""
     # 清理當前實驗的 checkpoints
-    artifacts_dir = exp_dir / "artifacts"
-    checkpoint_manager = CheckpointManager(results_dir=str(artifacts_dir))
+    artifacts_dir = os.path.join(exp_dir, "artifacts")
+    checkpoint_manager = CheckpointManager(results_dir=artifacts_dir)
     checkpoint_manager.cleanup_experiment(artifacts_dir)
 
     # 創建系統監控器
@@ -116,7 +115,7 @@ def save_experiment_results(exp_dir, config, train_result, eval_result, trainer)
     # 保存配置
     config_dict = config.model_dump()  # 使用 model_dump 替代 dict
     config_dict["results"] = metrics
-    config_file = exp_dir / "config.yaml"
+    config_file = os.path.join(exp_dir, "config.yaml")
     with open(config_file, "w", encoding="utf-8") as f:
         yaml.dump(config_dict, f, allow_unicode=True, sort_keys=False)
 
@@ -130,7 +129,7 @@ def save_experiment_results(exp_dir, config, train_result, eval_result, trainer)
             config_path=str(config_file),
             train_runtime=metrics["train"]["runtime"],
             eval_accuracy=metrics["eval"]["accuracy"],
-            log_path=str(exp_dir / "logs.txt"),
+            log_path=os.path.join(exp_dir, "logs.txt"),
             # 新增效能指標
             tokens_per_sec=metrics["train"]["tokens_per_sec"],
             cpu_percent=metrics["system"]["cpu_percent"],
@@ -144,6 +143,23 @@ def save_experiment_results(exp_dir, config, train_result, eval_result, trainer)
             num_epochs=config.training.num_train_epochs,
         )
     )
+
+    # 保存到模型註冊表
+    model_card = ModelCard(
+        id=exp_dir.name,
+        name=config.experiment_name,
+        base_model=config.model.name,
+        language=config.data.language if hasattr(config.data, "language") else "en",
+        task=config.data.task
+        if hasattr(config.data, "task")
+        else "text-classification",
+        description=f"LoRA fine-tuned model on {config.data.dataset_name} dataset",
+        metrics=dict(
+            accuracy=metrics["eval"]["accuracy"], loss=metrics["eval"].get("loss")
+        ),
+        tags=[config.data.dataset_name, "lora", config.model.name],
+    )
+    registry.save_model_card(model_card)
 
     logger.info(f"✅ 實驗結果已保存到 {exp_dir} 和資料庫")
 

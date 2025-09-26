@@ -13,7 +13,7 @@
    - test_out_of_memory: 測試記憶體不足錯誤處理
 """
 
-from pathlib import Path
+import os
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -55,7 +55,7 @@ class TestTraining:
         3. 驗證錯誤類型和訊息
         """
         # 確保輸出目錄存在
-        Path("results/test").mkdir(parents=True, exist_ok=True)
+        os.makedirs("results/test", exist_ok=True)
         with patch("app.train.preprocess.load_dataset") as mock_load:
             mock_load.return_value = {
                 "train": empty_dataset,
@@ -76,7 +76,7 @@ class TestTraining:
                     model,
                     train_dataset,
                     eval_dataset,
-                    Path("results/test"),
+                    "results/test",
                 )
                 train_and_evaluate(test_config, trainer)
 
@@ -96,7 +96,7 @@ class TestTraining:
         3. 驗證錯誤類型和訊息
         """
         # 確保輸出目錄存在
-        Path("results/test").mkdir(parents=True, exist_ok=True)
+        os.makedirs("results/test", exist_ok=True)
         with patch("app.train.preprocess.load_dataset") as mock_load:
             # 模擬缺少驗證集的情況
             mock_load.return_value = {
@@ -118,7 +118,7 @@ class TestTraining:
                     model,
                     train_dataset,
                     eval_dataset,
-                    Path("results/test"),
+                    "results/test",
                 )
                 train_and_evaluate(test_config, trainer)
 
@@ -138,7 +138,7 @@ class TestTraining:
         3. 驗證錯誤類型和訊息
         """
         # 確保輸出目錄存在
-        Path("results/test").mkdir(parents=True, exist_ok=True)
+        os.makedirs("results/test", exist_ok=True)
         with patch("app.train.preprocess.load_dataset") as mock_load:
             # 模擬載入錯誤
             mock_load.side_effect = Exception("找不到數據集")
@@ -157,7 +157,7 @@ class TestTraining:
                     model,
                     train_dataset,
                     eval_dataset,
-                    Path("results/test"),
+                    "results/test",
                 )
                 train_and_evaluate(test_config, trainer)
 
@@ -184,7 +184,7 @@ class TestTraining:
         5. 驗證訓練結果
         """
         # 確保輸出目錄存在
-        Path("results/test").mkdir(parents=True, exist_ok=True)
+        os.makedirs("results/test", exist_ok=True)
         with (
             patch("torch.cuda.is_available", return_value=False),
             patch("torch.backends.mps.is_available", return_value=True),
@@ -225,7 +225,7 @@ class TestTraining:
                         model,
                         train_dataset,
                         eval_dataset,
-                        Path("results/test"),
+                        "results/test",
                     )
                     train_result, eval_result = train_and_evaluate(test_config, trainer)
 
@@ -249,7 +249,7 @@ class TestTraining:
         3. 驗證錯誤類型
         """
         # 確保輸出目錄存在
-        Path("results/test").mkdir(parents=True, exist_ok=True)
+        os.makedirs("results/test", exist_ok=True)
 
         # Mock 資料集載入
         with patch("app.train.preprocess.load_dataset") as mock_load:
@@ -259,7 +259,7 @@ class TestTraining:
             }
 
             # Mock 訓練器
-            with patch("transformers.Trainer") as mock_trainer:
+            with patch("transformers.Trainer"):
                 # 設置訓練環境
                 device = setup_device(test_config)
                 model, tokenizer = load_model_and_tokenizer(test_config, device)
@@ -272,7 +272,7 @@ class TestTraining:
                     model,
                     train_dataset,
                     eval_dataset,
-                    Path("results/test"),
+                    "results/test",
                 )
 
                 # 模擬訓練時記憶體不足
@@ -299,7 +299,7 @@ class TestTraining:
         4. 驗證訓練結果
         """
         # 確保輸出目錄存在
-        Path("results/test").mkdir(parents=True, exist_ok=True)
+        os.makedirs("results/test", exist_ok=True)
         with patch("app.train.preprocess.load_dataset") as mock_load:
             # 創建足夠大的數據集
             base_data = long_sequence_dataset.select(range(5))
@@ -339,7 +339,7 @@ class TestTraining:
                     model,
                     train_dataset,
                     eval_dataset,
-                    Path("results/test"),
+                    "results/test",
                 )
                 train_result, eval_result = train_and_evaluate(test_config, trainer)
 

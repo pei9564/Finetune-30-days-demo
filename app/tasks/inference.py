@@ -1,7 +1,6 @@
 import logging
 import os
 import time
-from pathlib import Path
 
 import torch
 import yaml
@@ -39,10 +38,10 @@ def load_experiment_config(model_path):
     """載入實驗配置"""
     # 從 model_path (e.g., results/exp_name/artifacts/final_model)
     # 找到 config.yaml (在 results/exp_name/config.yaml)
-    exp_dir = Path(model_path).parent.parent
-    config_path = exp_dir / "config.yaml"
+    exp_dir = os.path.dirname(os.path.dirname(model_path))
+    config_path = os.path.join(exp_dir, "config.yaml")
 
-    if not config_path.exists():
+    if not os.path.exists(config_path):
         raise ValueError(f"找不到配置文件：{config_path}")
 
     with open(config_path) as f:

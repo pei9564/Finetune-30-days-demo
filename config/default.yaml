@@ -19,8 +19,8 @@ lora:
 data:
   dataset_name: "glue"
   dataset_config: "sst2"
-  train_samples: 500
-  eval_samples: 100
+  train_samples: 100
+  eval_samples: 50
   max_length: 128
   validation_rules:
     min_text_length: 5

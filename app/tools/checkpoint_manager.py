@@ -9,9 +9,9 @@ Checkpoint 管理工具
 
 import json
 import logging
+import os
 import shutil
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class CheckpointMetrics:
     """Checkpoint 指標數據"""
 
-    path: Path
+    path: str
     accuracy: float = 0.0
     runtime: float = float("inf")
     is_last: bool = False
@@ -44,47 +44,52 @@ class CheckpointManager:
             results_dir: 結果目錄路徑
             checkpoint_prefix: checkpoint 目錄前綴
         """
-        self.results_dir = Path(results_dir)
+        self.results_dir = results_dir
         self.checkpoint_prefix = checkpoint_prefix
 
-    def get_experiment_dirs(self) -> List[Path]:
+    def get_experiment_dirs(self) -> List[str]:
         """獲取所有實驗目錄
 
         Returns:
-            List[Path]: 實驗目錄列表
+            List[str]: 實驗目錄列表
         """
+        if not os.path.exists(self.results_dir):
+            return []
         return [
-            d
-            for d in self.results_dir.iterdir()
-            if d.is_dir() and not d.name.startswith(".")
+            os.path.join(self.results_dir, d)
+            for d in os.listdir(self.results_dir)
+            if os.path.isdir(os.path.join(self.results_dir, d))
+            and not d.startswith(".")
         ]
 
-    def get_checkpoints(self, experiment_dir: Path) -> List[Path]:
+    def get_checkpoints(self, experiment_dir: str) -> List[str]:
         """獲取實驗的所有 checkpoint 目錄
 
         Args:
             experiment_dir: 實驗目錄路徑
 
         Returns:
-            List[Path]: checkpoint 目錄列表
+            List[str]: checkpoint 目錄列表
         """
-        if not experiment_dir.exists():
+        if not os.path.exists(experiment_dir):
             return []
 
         # 檢查是否有必要的檔案
-        checkpoints = [
-            d
-            for d in experiment_dir.iterdir()
-            if d.is_dir()
-            and d.name.startswith(self.checkpoint_prefix)
-            and (d / "adapter_config.json").exists()
-            and (d / "adapter_model.safetensors").exists()
-        ]
+        checkpoints = []
+        for item in os.listdir(experiment_dir):
+            item_path = os.path.join(experiment_dir, item)
+            if (
+                os.path.isdir(item_path)
+                and item.startswith(self.checkpoint_prefix)
+                and os.path.exists(os.path.join(item_path, "adapter_config.json"))
+                and os.path.exists(os.path.join(item_path, "adapter_model.safetensors"))
+            ):
+                checkpoints.append(item_path)
 
         # 按照創建時間排序
-        return sorted(checkpoints, key=lambda x: x.stat().st_ctime, reverse=True)
+        return sorted(checkpoints, key=lambda x: os.path.getctime(x), reverse=True)
 
-    def read_checkpoint_metrics(self, checkpoint: Path) -> Optional[CheckpointMetrics]:
+    def read_checkpoint_metrics(self, checkpoint: str) -> Optional[CheckpointMetrics]:
         """讀取 checkpoint 的評估指標
 
         Args:
@@ -94,8 +99,8 @@ class CheckpointManager:
             Optional[CheckpointMetrics]: checkpoint 指標數據，如果讀取失敗則返回 None
         """
         try:
-            state_file = checkpoint / "trainer_state.json"
-            if not state_file.exists():
+            state_file = os.path.join(checkpoint, "trainer_state.json")
+            if not os.path.exists(state_file):
                 return None
 
             with open(state_file) as f:
@@ -110,15 +115,15 @@ class CheckpointManager:
             return None
 
     def analyze_checkpoints(
-        self, experiment_dir: Path
-    ) -> Tuple[Set[Path], Dict[str, CheckpointMetrics]]:
+        self, experiment_dir: str
+    ) -> Tuple[Set[str], Dict[str, CheckpointMetrics]]:
         """分析實驗的 checkpoints 並選擇要保留的檔案
 
         Args:
             experiment_dir: 實驗目錄路徑
 
         Returns:
-            Tuple[Set[Path], Dict[str, CheckpointMetrics]]:
+            Tuple[Set[str], Dict[str, CheckpointMetrics]]:
                 - 要保留的 checkpoint 路徑集合
                 - 保留的 checkpoint 指標信息
         """
@@ -160,7 +165,7 @@ class CheckpointManager:
 
         return to_keep, kept_metrics
 
-    def cleanup_experiment(self, experiment_dir: Path) -> None:
+    def cleanup_experiment(self, experiment_dir: str) -> None:
         """清理單個實驗的 checkpoints，保留指定的重要 checkpoints
 
         Args:
@@ -176,17 +181,23 @@ class CheckpointManager:
                 if checkpoint not in to_keep:
                     try:
                         shutil.rmtree(checkpoint)
-                        logger.info(f"🗑️ 已刪除 checkpoint: {checkpoint.name}")
+                        logger.info(
+                            f"🗑️ 已刪除 checkpoint: {os.path.basename(checkpoint)}"
+                        )
                     except Exception as e:
                         logger.warning(f"⚠️ 刪除 checkpoint 失敗 {checkpoint}: {e}")
 
             # 記錄保留的 checkpoints
             logger.info("✅ Checkpoint 清理完成，保留:")
             logger.info(
-                f"   - 最佳準確率 ({kept_metrics['best'].accuracy:.4f}): {kept_metrics['best'].path.name}"
+                f"   - 最佳準確率 ({kept_metrics['best'].accuracy:.4f}): {os.path.basename(kept_metrics['best'].path)}"
             )
-            logger.info(f"   - 最後檢查點: {kept_metrics['last'].path.name}")
-            logger.info(f"   - 最快訓練: {kept_metrics['fastest'].path.name}")
+            logger.info(
+                f"   - 最後檢查點: {os.path.basename(kept_metrics['last'].path)}"
+            )
+            logger.info(
+                f"   - 最快訓練: {os.path.basename(kept_metrics['fastest'].path)}"
+            )
 
         except Exception as e:
             logger.error(f"清理實驗 {experiment_dir} 失敗: {e}")
@@ -196,9 +207,9 @@ class CheckpointManager:
         for exp_dir in self.get_experiment_dirs():
             try:
                 self.cleanup_experiment(exp_dir)
-                logger.info(f"已清理實驗 {exp_dir.name} 的 checkpoints")
+                logger.info(f"已清理實驗 {os.path.basename(exp_dir)} 的 checkpoints")
             except Exception as e:
-                logger.error(f"清理實驗 {exp_dir.name} 失敗: {e}")
+                logger.error(f"清理實驗 {os.path.basename(exp_dir)} 失敗: {e}")
 
 
 def main():

@@ -2,6 +2,8 @@
 訓練任務定義
 """
 
+import os
+from datetime import datetime
 from typing import Dict
 
 from celery.exceptions import SoftTimeLimitExceeded
@@ -14,6 +16,7 @@ from app.exceptions import (
     TrainingError,
     TrainingTimeoutError,
 )
+from app.models.model_registry import ModelCard, registry
 from app.tasks import celery_app
 from app.train import (
     load_and_process_data,
@@ -74,15 +77,40 @@ def train_lora(config: Dict) -> Dict:
     try:
         config = Config(**config)
 
+        # 設置實驗目錄（需要先設置目錄，因為後續步驟會用到）
+        exp_dir = os.path.join("results", "test")
+        os.makedirs(exp_dir, exist_ok=True)
+
+        # 設置輸出目錄
+        artifacts_dir = os.path.join(exp_dir, "artifacts")
+        os.makedirs(artifacts_dir, exist_ok=True)
+        config.training.output_dir = artifacts_dir
+
         # 設置訓練環境
         device = setup_device(config)
         model, tokenizer = load_model_and_tokenizer(config, device)
         train_dataset, eval_dataset = load_and_process_data(config, tokenizer)
         model = setup_lora(config, model, device)
-        trainer = setup_training(
-            config, model, train_dataset, eval_dataset, "results/test"
-        )
+
+        trainer = setup_training(config, model, train_dataset, eval_dataset, exp_dir)
         train_result, eval_result = train_and_evaluate(config, trainer)
+
+        # 保存到模型註冊表
+        model_card = ModelCard(
+            id=f"task_{config.experiment_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            name=config.experiment_name,
+            base_model=config.model.name,
+            language=config.data.language if hasattr(config.data, "language") else "en",
+            task=config.data.task
+            if hasattr(config.data, "task")
+            else "text-classification",
+            description=f"LoRA fine-tuned model on {config.data.dataset_name} dataset",
+            metrics=dict(
+                accuracy=eval_result["eval_accuracy"], loss=eval_result.get("eval_loss")
+            ),
+            tags=[config.data.dataset_name, "lora", config.model.name],
+        )
+        registry.save_model_card(model_card)
 
         # 返回結果
         return {
@@ -92,6 +120,7 @@ def train_lora(config: Dict) -> Dict:
                 "runtime": train_result.metrics["train_runtime"],
             },
             "eval": {"accuracy": eval_result["eval_accuracy"]},
+            "model_id": model_card.id,
         }
     except RuntimeError as e:
         if "out of memory" in str(e).lower():

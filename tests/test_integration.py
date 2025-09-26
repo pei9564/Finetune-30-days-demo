@@ -9,7 +9,6 @@
 import json
 import os
 import sqlite3
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -237,9 +236,9 @@ class TestTrainingFlow:
         assert record[5] == 0.85  # eval_accuracy
 
         # 創建指標文件（模擬訓練任務完成後的文件寫入）
-        metrics_dir = Path("results") / f"test_e2e_experiment_{record[0]}"
-        metrics_dir.mkdir(parents=True, exist_ok=True)
-        metrics_file = metrics_dir / "metrics.json"
+        metrics_dir = os.path.join("results", f"test_e2e_experiment_{record[0]}")
+        os.makedirs(metrics_dir, exist_ok=True)
+        metrics_file = os.path.join(metrics_dir, "metrics.json")
 
         test_metrics = {
             "train": {
@@ -257,7 +256,7 @@ class TestTrainingFlow:
             json.dump(test_metrics, f, indent=2)
 
         # 驗證指標文件
-        assert metrics_file.exists()
+        assert os.path.exists(metrics_file)
 
         with open(metrics_file, "r", encoding="utf-8") as f:
             metrics = json.load(f)

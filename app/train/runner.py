@@ -3,8 +3,8 @@
 """
 
 import logging
-from pathlib import Path
-from typing import Dict, Optional, Tuple, Union
+import os
+from typing import Dict, Optional, Tuple
 
 import psutil
 import torch
@@ -110,7 +110,7 @@ def setup_training(
     model: PreTrainedModel,
     train_dataset: Dataset,
     eval_dataset: Dataset,
-    exp_dir: Path,
+    exp_dir: str,
 ) -> Trainer:
     """設置訓練
 
@@ -124,6 +124,9 @@ def setup_training(
     Returns:
         Trainer: 訓練器實例
     """
+    # 確保 exp_dir 是字符串
+    exp_dir = str(exp_dir)
+
     # 訓練參數
     logger.info("⚙️ 設置訓練參數...")
     training_args = TrainingArguments(
@@ -159,7 +162,10 @@ def setup_training(
     logger.info("     3. 訓練時間最短（用於快速實驗）")
 
     # 創建自定義 callback，使用實驗目錄中的日誌文件
-    progress_callback = TrainingProgressCallback(exp_dir / "logs.txt")
+    log_file = os.path.join(str(exp_dir), "logs.txt")
+    # 確保日誌目錄存在
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+    progress_callback = TrainingProgressCallback(log_file)
 
     # 創建 Trainer
     trainer = Trainer(
@@ -242,9 +248,10 @@ def train_and_evaluate(config: Config, trainer: Trainer) -> Tuple[Dict, Optional
     logger.info(f"✅ 驗證準確率: {eval_result['eval_accuracy']:.4f}")
 
     # 保存模型
-    output_dir = Path(config.training.output_dir) / "final_model"
+    output_dir = os.path.join(config.training.output_dir, "final_model")
+    os.makedirs(output_dir, exist_ok=True)
     logger.info(f"💾 保存模型到 {output_dir}...")
-    trainer.save_model(str(output_dir))
+    trainer.save_model(output_dir)
     logger.info("✅ 模型保存完成")
 
     # 訓練總結

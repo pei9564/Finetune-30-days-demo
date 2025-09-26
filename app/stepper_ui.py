@@ -28,6 +28,35 @@ def load_default_config() -> Dict:
         return {}
 
 
+def login(username: str, password: str) -> Optional[Dict]:
+    """登入並獲取 JWT token 和用戶資訊
+
+    Args:
+        username: 使用者名稱
+        password: 密碼
+
+    Returns:
+        Dict: 包含 token 和用戶資訊的字典，如果登入失敗則返回 None
+    """
+    try:
+        response = requests.post(
+            f"{API_URL}/auth/login", json={"username": username, "password": password}
+        )
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                "token": data["token"],
+                "role": data["role"],
+                "user_id": data["user_id"],
+            }
+        else:
+            st.error("登入失敗：帳號或密碼錯誤")
+            return None
+    except Exception as e:
+        st.error(f"登入失敗：{e}")
+        return None
+
+
 def get_task_status(task_id: str) -> Optional[Dict]:
     """查詢任務狀態
 
@@ -38,7 +67,14 @@ def get_task_status(task_id: str) -> Optional[Dict]:
         Dict: 任務狀態資訊，如果請求失敗則返回 None
     """
     try:
-        response = requests.get(f"{API_URL}/task/{task_id}")
+        # 從 session state 獲取 token
+        token = st.session_state.get("jwt_token")
+        if not token:
+            st.error("請先登入")
+            return None
+
+        headers = {"Authorization": f"Bearer {token}"}
+        response = requests.get(f"{API_URL}/task/{task_id}", headers=headers)
         return response.json()
     except Exception as e:
         st.error(f"查詢失敗：{e}")
@@ -93,6 +129,34 @@ def render_stepper(status: str):
                 f"</div>",
                 unsafe_allow_html=True,
             )
+
+
+def check_auth() -> bool:
+    """檢查是否已登入
+
+    Returns:
+        bool: 是否已登入
+    """
+    if "jwt_token" not in st.session_state:
+        st.warning("請先登入")
+        with st.form("login_form"):
+            username = st.text_input("使用者名稱")
+            password = st.text_input("密碼", type="password")
+            submitted = st.form_submit_button("登入")
+
+            if submitted:
+                auth_data = login(username, password)
+                if auth_data:
+                    st.session_state.jwt_token = auth_data["token"]
+                    st.session_state.user_role = auth_data["role"]
+                    st.session_state.user_id = auth_data["user_id"]
+                    st.success(
+                        f"登入成功！歡迎 {auth_data['user_id']} ({auth_data['role']})"
+                    )
+                    st.rerun()
+                    return True
+        return False
+    return True
 
 
 def submit_training_task(
@@ -163,9 +227,11 @@ def submit_training_task(
             config["training"]["device"] = device
 
         # 提交任務
+        headers = {"Authorization": f"Bearer {st.session_state.jwt_token}"}
         response = requests.post(
             f"{API_URL}/train",
             json={"config": config},
+            headers=headers,
         )
         result = response.json()
         return result.get("task_id")
@@ -365,11 +431,14 @@ def render_experiment_list():
         if max_runtime > 0:
             params["max_runtime"] = max_runtime
 
-        response = requests.get(f"{API_URL}/experiments", params=params)
+        headers = {"Authorization": f"Bearer {st.session_state.jwt_token}"}
+        response = requests.get(
+            f"{API_URL}/experiments", params=params, headers=headers
+        )
         experiments = response.json()
 
         # 顯示統計資訊
-        stats_response = requests.get(f"{API_URL}/experiments/stats")
+        stats_response = requests.get(f"{API_URL}/experiments/stats", headers=headers)
         stats = stats_response.json()
 
         col1, col2, col3, col4 = st.columns(4)
@@ -467,6 +536,10 @@ def render_task_progress():
 def main():
     """主函數"""
     st.title("LoRA 訓練任務管理")
+
+    # 檢查登入狀態
+    if not check_auth():
+        return
 
     # 添加頁籤
     tab1, tab2, tab3 = st.tabs(["提交任務", "追蹤進度", "實驗記錄"])

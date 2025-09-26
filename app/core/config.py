@@ -3,7 +3,7 @@
 使用 Pydantic 進行參數驗證和管理
 """
 
-from pathlib import Path
+import os
 from typing import List, Optional
 
 import yaml
@@ -91,8 +91,7 @@ class Config(BaseModel):
 
     def save_yaml(self, save_path: str) -> None:
         """保存配置到 YAML 文件"""
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
         with open(save_path, "w", encoding="utf-8") as f:
             yaml.dump(self.dict(), f, allow_unicode=True, sort_keys=False)
