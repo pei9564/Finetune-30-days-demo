@@ -5,7 +5,8 @@
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Security
+from fastapi.security import HTTPBearer
 
 from app.auth.jwt_utils import check_admin, check_task_owner
 from app.db import Database, ExperimentFilter, ExperimentRecord
@@ -61,7 +62,9 @@ async def list_experiments(
 
 
 @router.get("/experiments/stats")
-async def get_experiment_stats(user: Dict = Depends(check_admin)) -> Dict:
+async def get_experiment_stats(
+    user: Optional[Dict] = Security(HTTPBearer(auto_error=False)),
+) -> Dict:
     """獲取實驗統計資訊，添加錯誤處理
 
     Returns:

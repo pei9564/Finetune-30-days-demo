@@ -23,12 +23,16 @@ services:
       - ./app:/app/app
       - ./config:/app/config
       - ./data:/app/data
+      - ./mlruns:/app/mlruns
     depends_on:
       redis:
         condition: service_healthy
+      mlflow:
+        condition: service_started
     environment:
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
       - TZ=${TZ}
       - PYTHONPATH=${PYTHONPATH}
       - PYTHONUNBUFFERED=${PYTHONUNBUFFERED}
@@ -47,14 +51,18 @@ services:
       - ./app:/app/app
       - ./config:/app/config
       - ./data:/app/data
+      - ./mlruns:/app/mlruns
     depends_on:
       redis:
         condition: service_healthy
+      mlflow:
+        condition: service_started
     environment:
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
       - REDIS_URL=redis://${REDIS_HOST}:${REDIS_PORT}
       - API_URL=${API_URL}
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
       - TZ=${TZ}
       - PYTHONPATH=${PYTHONPATH}
       - PYTHONUNBUFFERED=${PYTHONUNBUFFERED}
@@ -72,14 +80,37 @@ services:
       - ./results:/app/results
       - ./app:/app/app  # 開發模式：掛載源碼目錄到 /app/app
       - ./config:/app/config
+      - ./mlruns:/app/mlruns
     depends_on:
-      - api
+      api:
+        condition: service_started
+      mlflow:
+        condition: service_started
     environment:
-      - API_URL=${API_URL}
+      - API_URL=http://api:8000
       - REDIS_URL=redis://${REDIS_HOST}:${REDIS_PORT}
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MLFLOW_UI_URL=http://localhost:5001
+      - DEBUG=false  # 關閉調試模式
       - TZ=${TZ}
       - PYTHONPATH=${PYTHONPATH}
       - PYTHONUNBUFFERED=${PYTHONUNBUFFERED}
+    networks:
+      - lora_network
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    ports:
+      - "5001:5000"
+    volumes:
+      - ./mlruns:/mlruns
+      - ./results:/results
+    command: >
+      mlflow server 
+      --backend-store-uri sqlite:///results/mlflow.db 
+      --default-artifact-root /results 
+      --serve-artifacts 
+      --host 0.0.0.0
     networks:
       - lora_network
 
@@ -89,3 +120,4 @@ networks:
 
 volumes:
   redis_data:
+  mlflow_data:

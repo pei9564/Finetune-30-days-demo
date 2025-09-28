@@ -8,6 +8,7 @@ from app.api.routes import (
     audit_router,
     auth_router,
     experiments_router,
+    mlflow_router,
     models_router,
     task_router,
     train_router,
@@ -31,3 +32,4 @@ app.include_router(task_router)
 app.include_router(experiments_router)
 app.include_router(audit_router)
 app.include_router(models_router)
+app.include_router(mlflow_router)  # MLflow 端點（公開，不需要認證）

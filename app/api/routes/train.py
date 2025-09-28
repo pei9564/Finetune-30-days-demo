@@ -50,8 +50,10 @@ async def start_training(
         if not request.config.experiment_name:
             raise HTTPException(status_code=400, detail="實驗名稱不能為空")
 
-        # 提交任務
-        task = train_lora_task.delay(config=request.config.model_dump())
+        # 設置用戶 ID 並提交任務
+        config_dict = request.config.model_dump()
+        config_dict["user_id"] = user["user_id"]
+        task = train_lora_task.delay(config=config_dict)
 
         if not task or not hasattr(task, "id"):
             raise HTTPException(status_code=500, detail="任務提交失敗")

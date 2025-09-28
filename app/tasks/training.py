@@ -77,14 +77,19 @@ def train_lora(config: Dict) -> Dict:
     try:
         config = Config(**config)
 
-        # 設置實驗目錄（需要先設置目錄，因為後續步驟會用到）
-        exp_dir = os.path.join("results", "test")
+        # 設置實驗目錄（使用實驗名稱和時間戳）
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        exp_dir = os.path.join("results", f"{config.experiment_name}_{timestamp}")
         os.makedirs(exp_dir, exist_ok=True)
 
         # 設置輸出目錄
         artifacts_dir = os.path.join(exp_dir, "artifacts")
         os.makedirs(artifacts_dir, exist_ok=True)
         config.training.output_dir = artifacts_dir
+
+        # 保存配置文件
+        config_path = os.path.join(exp_dir, "config.yaml")
+        config.save_yaml(config_path)
 
         # 設置訓練環境
         device = setup_device(config)
@@ -93,7 +98,7 @@ def train_lora(config: Dict) -> Dict:
         model = setup_lora(config, model, device)
 
         trainer = setup_training(config, model, train_dataset, eval_dataset, exp_dir)
-        train_result, eval_result = train_and_evaluate(config, trainer)
+        train_result, eval_result, mlflow_run_id = train_and_evaluate(config, trainer)
 
         # 保存到模型註冊表
         model_card = ModelCard(
@@ -121,6 +126,11 @@ def train_lora(config: Dict) -> Dict:
             },
             "eval": {"accuracy": eval_result["eval_accuracy"]},
             "model_id": model_card.id,
+            "mlflow_run_id": mlflow_run_id,
+            "config": {
+                "experiment_name": config.experiment_name,
+                "user_id": config.user_id,
+            },
         }
     except RuntimeError as e:
         if "out of memory" in str(e).lower():

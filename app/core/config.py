@@ -74,6 +74,7 @@ class Config(BaseModel):
     """總配置"""
 
     experiment_name: str = Field(default="default_experiment", description="實驗名稱")
+    user_id: Optional[str] = Field(default=None, description="用戶 ID")
     model: ModelConfig = Field(default_factory=ModelConfig, description="模型配置")
     lora: LoRAConfig = Field(default_factory=LoRAConfig, description="LoRA 配置")
     data: DataConfig = Field(default_factory=DataConfig, description="資料配置")

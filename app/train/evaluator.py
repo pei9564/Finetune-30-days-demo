@@ -7,6 +7,7 @@ import os
 from typing import Dict, Optional
 
 import evaluate
+import mlflow
 import numpy as np
 from transformers import TrainerCallback, TrainerControl, TrainerState
 
@@ -35,14 +36,24 @@ class TrainingProgressCallback(TrainerCallback):
         """記錄訓練進度"""
         if logs:
             metrics = []
+            mlflow_metrics = {}
+
             for key in ["loss", "learning_rate", "epoch", "eval_loss", "eval_accuracy"]:
                 if key in logs:
                     value = logs[key]
                     metrics.append(f"{key}={value:.4f}")
 
+                    # Log metrics to MLflow
+                    if key != "learning_rate":  # Skip learning rate as it's a parameter
+                        mlflow_metrics[key] = value
+
             if metrics:
                 message = f"Step {state.global_step}: {' | '.join(metrics)}"
                 self.logger.info(message)
+
+                # Add step number to metrics and log to MLflow
+                if mlflow_metrics:
+                    mlflow.log_metrics(mlflow_metrics, step=state.global_step)
 
     def on_evaluate(
         self,
@@ -55,15 +66,22 @@ class TrainingProgressCallback(TrainerCallback):
         """記錄評估結果"""
         if metrics:
             eval_metrics = []
+            mlflow_metrics = {}
+
             for key, value in metrics.items():
                 if isinstance(value, (int, float)):
                     eval_metrics.append(f"{key}={value:.4f}")
+                    mlflow_metrics[f"eval_{key}"] = float(value)
                 else:
                     eval_metrics.append(f"{key}={value}")
 
             if eval_metrics:
                 message = f"Evaluation: {' | '.join(eval_metrics)}"
                 self.logger.info(message)
+
+                # Log evaluation metrics to MLflow
+                if mlflow_metrics:
+                    mlflow.log_metrics(mlflow_metrics, step=state.global_step)
 
 
 def compute_metrics(eval_pred: tuple) -> Dict:

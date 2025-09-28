@@ -9,7 +9,7 @@
 
 * 🚀 **多硬體支援**：CPU / CUDA / Apple MPS
 * 📊 **資料管理**：驗證、版本追蹤、分布分析
-* 🎯 **實驗追蹤**：自動保存配置、日誌、metrics
+* 🎯 **實驗追蹤**：MLflow 整合、自動記錄參數/指標/成品
 * 🌐 **網頁界面**：提交任務、即時監控、實驗瀏覽
 * 🔄 **非同步任務**：Celery + Redis 任務隊列
 * 📝 **結構化配置**：Pydantic + YAML 管理
@@ -33,6 +33,7 @@ sequenceDiagram
     participant API as FastAPI
     participant C as Celery Worker
     participant T as 訓練程式
+    participant M as MLflow
     participant DB as SQLite DB
     participant R as Redis
 
@@ -50,10 +51,13 @@ sequenceDiagram
     end
 
     C->>T: 執行 LoRA 訓練
+    T->>M: 記錄參數/指標/成品
     T->>DB: 寫入實驗記錄
     T->>R: 更新結果 SUCCESS
     UI->>API: 最後查詢
+    API->>M: 獲取實驗結果
     API-->>UI: 返回 SUCCESS + 結果
+    UI->>M: 查看詳細實驗記錄
 ```
 
 ---
@@ -64,6 +68,9 @@ sequenceDiagram
 graph TB
     subgraph Training["訓練流程"]
         Train[train_lora_v2.py] --> Results[(results/)]
+        Train --> MLflow[MLflow Server]
+        MLflow --> Metrics[參數/指標]
+        MLflow --> Artifacts[模型/日誌]
         Results --> Config[config.yaml]
         Results --> Model[final_model/]
     end
@@ -102,6 +109,7 @@ graph TB
 | `/train`          | POST | 已認證   | train.py       |
 | `/task/{task_id}` | GET  | 任務所有者 | task.py        |
 | `/experiments`    | GET  | 管理員   | experiments.py |
+| `/mlflow`         | GET  | 公開    | mlflow.py      |
 | `/audit/logs`     | GET  | 管理員   | audit.py       |
 
 ---
@@ -118,6 +126,7 @@ app/
 │   ├── train.py
 │   ├── task.py
 │   ├── experiments.py
+│   ├── mlflow.py         # MLflow 實驗追蹤
 │   └── audit.py
 ├── tasks/               # 任務處理
 │   ├── training.py
@@ -205,6 +214,10 @@ make test-v    # 顯示詳細過程
   * `metrics.json` → 效能與準確率
   * `logs.txt` → 訓練日誌
   * `artifacts/` → 模型與 checkpoints
+  * MLflow 追蹤：
+    * 參數：batch_size、learning_rate、epochs 等
+    * 指標：accuracy、loss、runtime
+    * 成品：模型、配置、日誌
 
 * **Checkpoint 清理策略**：
 
@@ -214,8 +227,9 @@ make test-v    # 顯示詳細過程
 * **瀏覽方式**：
 
   * Web UI（實驗記錄頁面）
+  * MLflow UI（詳細實驗追蹤）
   * CLI (`make db-list`)
-  * API (`/experiments`)
+  * API (`/experiments`, `/mlflow`)
 
 ---
 
