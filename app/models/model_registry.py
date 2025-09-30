@@ -3,6 +3,7 @@ import logging
 import os
 from typing import Dict, List, Optional
 
+import mlflow
 import numpy as np
 from pydantic import BaseModel, Field
 from sklearn.metrics.pairwise import cosine_similarity
@@ -33,6 +34,13 @@ class ModelCard(BaseModel):
     tags: List[str] = Field(default_factory=list)
     embedding: Optional[List[float]] = Field(
         None, description="Vector representation of the model"
+    )
+    version: Optional[int] = Field(None, description="Model version in MLflow Registry")
+    stage: Optional[str] = Field(
+        None, description="Model stage (Staging/Production/Archived)"
+    )
+    run_id: Optional[str] = Field(
+        None, description="MLflow run ID associated with this model"
     )
 
     class Config:
@@ -135,6 +143,50 @@ class ModelRegistry:
         # Get top-k models
         top_indices = np.argsort(similarities)[-top_k:][::-1]
         return [candidate_models[i] for i in top_indices]
+
+    def sync_with_mlflow(self, run_id: str) -> bool:
+        """Sync model card with MLflow Registry state"""
+        try:
+            # Get the run
+            run = mlflow.get_run(run_id)
+            if not run:
+                logger.error(f"MLflow run {run_id} not found")
+                return False
+
+            # Get model name from run tags
+            model_name = run.data.tags.get("model_name")
+            if not model_name:
+                logger.error(f"Run {run_id} does not have model_name tag")
+                return False
+
+            # Find registered model version
+            client = mlflow.tracking.MlflowClient()
+            versions = client.search_model_versions(f"name='{model_name}'")
+            version = next((v for v in versions if v.run_id == run_id), None)
+
+            if not version:
+                logger.warning(f"No registered model version found for run {run_id}")
+                return False
+
+            # Find corresponding model card by run_id
+            model_card = next(
+                (m for m in self.models.values() if m.run_id == run_id), None
+            )
+            if not model_card:
+                logger.error(f"No model card found for run_id {run_id}")
+                return False
+
+            # Update model card with registry info
+            model_card.version = int(version.version)
+            model_card.stage = version.current_stage
+            model_card.run_id = run_id
+
+            # Save updated model card
+            return self.save_model_card(model_card)
+
+        except Exception as e:
+            logger.error(f"Failed to sync with MLflow: {e}")
+            return False
 
 
 # Create global registry instance

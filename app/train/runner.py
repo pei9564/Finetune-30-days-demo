@@ -11,7 +11,7 @@ from typing import Dict, Optional, Tuple
 import mlflow
 import psutil
 import torch
-from datasets import Dataset
+from datasets import Dataset, load_dataset
 from peft import LoraConfig, get_peft_model
 from transformers import (
     AutoModelForSequenceClassification,
@@ -24,9 +24,15 @@ from transformers import (
 
 from app.core.config import Config
 from app.core.mlflow_config import init_mlflow
+from app.models.model_registry import ModelCard, registry
+from app.tools.artifact_utils import save_artifact
 from app.train.evaluator import TrainingProgressCallback, compute_metrics
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_TEST_SIZE = 0.1
+DEFAULT_SEED = 42
+MEMORY_WARNING_THRESHOLD = 0.9
 
 
 def load_model_and_tokenizer(
@@ -125,9 +131,6 @@ def load_and_process_data(
     """
     logger.info("📦 載入數據集...")
 
-    # 載入數據集
-    from datasets import load_dataset
-
     dataset = load_dataset(
         config.data.dataset_name,
         config.data.subset,
@@ -136,7 +139,7 @@ def load_and_process_data(
     )
 
     # 隨機分割訓練集和驗證集
-    dataset = dataset.train_test_split(test_size=0.1, seed=42)
+    dataset = dataset.train_test_split(test_size=DEFAULT_TEST_SIZE, seed=DEFAULT_SEED)
     train_dataset = dataset["train"]
     eval_dataset = dataset["test"]
 
@@ -164,13 +167,11 @@ def setup_training(
         model: 模型
         train_dataset: 訓練資料集
         eval_dataset: 驗證資料集
-        exp_dir: 實驗目錄
+        exp_dir: 實驗目錄（未使用，保留以維持接口一致性）
 
     Returns:
         Trainer: 訓練器實例
     """
-    # 確保 exp_dir 是字符串
-    exp_dir = str(exp_dir)
 
     # 訓練參數
     logger.info("⚙️ 設置訓練參數...")
@@ -190,21 +191,16 @@ def setup_training(
         greater_is_better=True,  # 指標越大越好
     )
 
+    # 合併訓練參數日誌
     logger.info("📝 訓練參數:")
     logger.info(f"   - 學習率: {training_args.learning_rate}")
     logger.info(f"   - 批次大小: {training_args.per_device_train_batch_size}")
     logger.info(f"   - 訓練輪數: {training_args.num_train_epochs}")
     logger.info(f"   - 記錄頻率: 每 {training_args.logging_steps} 步")
-
-    logger.info("📝 Checkpoint 設置:")
     logger.info("   - 保存策略: 每個 epoch")
     logger.info("   - 評估策略: 每個 epoch")
     logger.info(f"   - 載入最佳模型: {training_args.load_best_model_at_end}")
     logger.info(f"   - 評估指標: {training_args.metric_for_best_model}")
-    logger.info("   - 保留三個關鍵 checkpoints:")
-    logger.info("     1. 最佳評估準確率")
-    logger.info("     2. 最後一個（用於恢復訓練）")
-    logger.info("     3. 訓練時間最短（用於快速實驗）")
 
     # 創建自定義 callback，使用 artifacts 目錄中的日誌文件
     log_file = os.path.join(str(config.training.output_dir), "logs.txt")
@@ -304,7 +300,9 @@ def train_and_evaluate(
                 total_gpu_memory = (
                     torch.cuda.get_device_properties(0).total_memory / 1024**3
                 )
-                if peak_gpu_memory > total_gpu_memory * 0.9:  # 使用超過 90% 的記憶體
+                if (
+                    peak_gpu_memory > total_gpu_memory * MEMORY_WARNING_THRESHOLD
+                ):  # 使用超過 90% 的記憶體
                     logger.warning(
                         f"⚠️ GPU 記憶體使用率過高: {(peak_gpu_memory / total_gpu_memory) * 100:.1f}%"
                     )
@@ -324,15 +322,68 @@ def train_and_evaluate(
                 }
             )
 
-            # 保存模型
+            # 保存模型到本地
             output_dir = os.path.join(config.training.output_dir, "final_model")
             os.makedirs(output_dir, exist_ok=True)
             logger.info(f"💾 保存模型到 {output_dir}...")
+
+            # 保存到本地
             trainer.save_model(output_dir)
             logger.info("✅ 模型保存完成")
 
-            # Log artifacts to MLflow
-            mlflow.log_artifacts(output_dir, "final_model")
+            save_artifact(output_dir, run.info.run_id)
+
+            # 記錄模型到 MLflow
+            model_name = config.model.name.split("/")[-1]  # Get base name without org
+            logger.info("📦 記錄模型到 MLflow...")
+
+            # 使用 mlflow.pytorch.save_model 先保存到臨時目錄
+            temp_model_dir = os.path.join(output_dir, "mlflow_model")
+            os.makedirs(temp_model_dir, exist_ok=True)
+            mlflow.pytorch.save_model(trainer.model, temp_model_dir)
+
+            # 使用 log_artifacts 記錄到 MLflow
+            mlflow.log_artifacts(temp_model_dir, "final_model")
+
+            # 註冊模型到 MLflow Registry
+            model_uri = f"runs:/{run.info.run_id}/final_model"
+            logger.info("📝 註冊模型到 MLflow Registry...")
+            registered_model = mlflow.register_model(
+                model_uri=model_uri, name=model_name
+            )
+            logger.info(
+                f"✅ 模型已註冊到 MLflow Registry: {model_name} v{registered_model.version}"
+            )
+
+            # 設置模型到 Staging 階段
+            client = mlflow.tracking.MlflowClient()
+            client.transition_model_version_stage(
+                name=model_name, version=registered_model.version, stage="Staging"
+            )
+            logger.info(
+                f"✅ 已將模型設置為 Staging 階段: {model_name} v{registered_model.version}"
+            )
+
+            # 創建模型卡片
+            model_id = f"task_{run.info.run_name}"  # 使用 run name 作為唯一標識
+
+            # 創建新的模型卡片
+            model_card = ModelCard(
+                id=model_id,
+                name=model_name,  # 使用 model_name 而不是 run_name
+                base_model=config.model.name.split("/")[-1],
+                language="en",
+                task="text-classification",
+                description="LoRA fine-tuned model on glue dataset",
+                version=registered_model.version,  # 直接設置版本
+                stage="Staging",  # 直接設置階段
+                run_id=run.info.run_id,
+                tags=["glue", "lora", config.model.name.split("/")[-1]],
+            )
+
+            # 保存模型卡片
+            registry.save_model_card(model_card)
+            logger.info(f"✅ 模型卡片已創建: {model_id}")
 
             # Log training logs if exists
             log_file = os.path.join(str(trainer.args.output_dir), "logs.txt")

@@ -281,7 +281,7 @@ logs-services: check-docker
 	@echo "📋 查看服務日誌..."
 	@echo "提示：按 Ctrl+C 停止查看"
 	@echo "---"
-	docker compose logs -f
+	docker compose logs -f worker api ui
 
 # 查看指定服務日誌
 logs-service: check-docker
