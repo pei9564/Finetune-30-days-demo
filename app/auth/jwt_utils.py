@@ -3,6 +3,7 @@
 提供 JWT Token 的生成與驗證功能。
 """
 
+import os
 import time
 from typing import Dict, Optional
 
@@ -13,7 +14,9 @@ from fastapi.security.http import HTTPAuthorizationCredentials
 from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
 # 配置
-JWT_SECRET = "your-secret-key"  # 實際應用中應該從環境變數讀取
+JWT_SECRET = os.getenv("JWT_SECRET")
+if not JWT_SECRET:
+    raise RuntimeError("JWT_SECRET environment variable is not set.")
 JWT_ALGORITHM = "HS256"
 TOKEN_EXPIRE_MINUTES = 30
 

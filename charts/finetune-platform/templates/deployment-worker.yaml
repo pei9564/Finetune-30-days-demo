@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "finetune-platform.fullname" . }}-worker
+  namespace: {{ .Values.namespace | default "lora-system" }}
+  labels:
+    {{- include "finetune-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels:
+      {{- include "finetune-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        {{- include "finetune-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
+    spec:
+      containers:
+        - name: worker
+          image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          workingDir: /app
+          command: ["python", "-m", "celery", "-A", "app.tasks", "worker", "--loglevel=info", "-P", "solo"]
+          ports:
+            - containerPort: {{ .Values.worker.service.port }}
+              name: worker
+          env:
+            - name: CELERY_BROKER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: lora-config
+                  key: CELERY_BROKER_URL
+            - name: CELERY_RESULT_BACKEND
+              valueFrom:
+                configMapKeyRef:
+                  name: lora-config
+                  key: CELERY_RESULT_BACKEND
+            - name: TZ
+              valueFrom:
+                configMapKeyRef:
+                  name: lora-config
+                  key: TZ
+            - name: PYTHONPATH
+              valueFrom:
+                configMapKeyRef:
+                  name: lora-config
+                  key: PYTHONPATH
+            - name: PYTHONUNBUFFERED
+              valueFrom:
+                configMapKeyRef:
+                  name: lora-config
+                  key: PYTHONUNBUFFERED
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.name }}
+                  key: JWT_SECRET
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          volumeMounts:
+            - name: results-storage
+              mountPath: /app/results
+            - name: config-storage
+              mountPath: /app/config
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import celery; print('Celery worker is alive')"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import celery; print('Celery worker is ready')"
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: results-storage
+          persistentVolumeClaim:
+            claimName: results-pvc
+        - name: config-storage
+          persistentVolumeClaim:
+            claimName: results-pvc
+      restartPolicy: Always

@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "finetune-platform.fullname" . }}-api
+  namespace: {{ .Values.namespace | default "lora-system" }}
+  labels:
+    {{- include "finetune-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels:
+      {{- include "finetune-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        {{- include "finetune-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+    spec:
+      containers:
+        - name: api
+          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          workingDir: /app
+          command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "{{ .Values.api.service.port }}"]
+          ports:
+            - containerPort: {{ .Values.api.service.port }}
+              name: http
+          env:
+            - name: CELERY_BROKER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: lora-config
+                  key: CELERY_BROKER_URL
+            - name: CELERY_RESULT_BACKEND
+              valueFrom:
+                configMapKeyRef:
+                  name: lora-config
+                  key: CELERY_RESULT_BACKEND
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: lora-config
+                  key: REDIS_URL
+            - name: API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: lora-config
+                  key: API_URL
+            - name: TZ
+              valueFrom:
+                configMapKeyRef:
+                  name: lora-config
+                  key: TZ
+            - name: PYTHONPATH
+              valueFrom:
+                configMapKeyRef:
+                  name: lora-config
+                  key: PYTHONPATH
+            - name: PYTHONUNBUFFERED
+              valueFrom:
+                configMapKeyRef:
+                  name: lora-config
+                  key: PYTHONUNBUFFERED
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.name }}
+                  key: JWT_SECRET
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          volumeMounts:
+            - name: results-storage
+              mountPath: /app/results
+          livenessProbe:
+            httpGet:
+              path: /docs
+              port: {{ .Values.api.service.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /docs
+              port: {{ .Values.api.service.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+      volumes:
+        - name: results-storage
+          persistentVolumeClaim:
+            claimName: results-pvc
+      restartPolicy: Always

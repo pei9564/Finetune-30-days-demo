@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "finetune-platform.fullname" . }}-ui
+  namespace: {{ .Values.namespace | default "lora-system" }}
+  labels:
+    {{- include "finetune-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ui
+spec:
+  replicas: {{ .Values.ui.replicas }}
+  selector:
+    matchLabels:
+      {{- include "finetune-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ui
+  template:
+    metadata:
+      labels:
+        {{- include "finetune-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: ui
+    spec:
+      containers:
+        - name: ui
+          image: "{{ .Values.ui.image.repository }}:{{ .Values.ui.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          workingDir: /app
+          command: ["python", "-m", "streamlit", "run", "/app/app/stepper_ui.py"]
+          ports:
+            - containerPort: {{ .Values.ui.service.port }}
+              name: http
+          env:
+            - name: API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: lora-config
+                  key: API_URL
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: lora-config
+                  key: REDIS_URL
+            - name: TZ
+              valueFrom:
+                configMapKeyRef:
+                  name: lora-config
+                  key: TZ
+            - name: PYTHONPATH
+              valueFrom:
+                configMapKeyRef:
+                  name: lora-config
+                  key: PYTHONPATH
+            - name: PYTHONUNBUFFERED
+              valueFrom:
+                configMapKeyRef:
+                  name: lora-config
+                  key: PYTHONUNBUFFERED
+          resources:
+            {{- toYaml .Values.ui.resources | nindent 12 }}
+          volumeMounts:
+            - name: results-storage
+              mountPath: /app/results
+          livenessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: {{ .Values.ui.service.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: {{ .Values.ui.service.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+      volumes:
+        - name: results-storage
+          persistentVolumeClaim:
+            claimName: results-pvc
+      restartPolicy: Always

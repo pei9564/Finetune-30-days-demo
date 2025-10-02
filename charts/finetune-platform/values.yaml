@@ -1,0 +1,78 @@
+namespace: lora-system
+
+global:
+  imagePullPolicy: IfNotPresent
+
+secrets:
+  name: lora-secrets
+  jwtSecret: your-secret-key
+
+api:
+  image:
+    repository: finetune-app
+    tag: latest
+  replicas: 1
+  service:
+    type: NodePort
+    port: 8000
+    nodePort: 30080
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+
+worker:
+  image:
+    repository: finetune-app
+    tag: latest
+  replicas: 2
+  service:
+    type: ClusterIP
+    port: 5555
+    nodePort: null
+    name: worker
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+
+redis:
+  image:
+    repository: redis
+    tag: latest
+  replicas: 1
+  service:
+    type: ClusterIP
+    port: 6379
+    nodePort: null
+    name: redis
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+ui:
+  image:
+    repository: finetune-app
+    tag: latest
+  replicas: 1
+  service:
+    type: NodePort
+    port: 8501
+    nodePort: 30501
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1
+      memory: 1Gi

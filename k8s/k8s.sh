@@ -78,15 +78,17 @@ case "$1" in
         kubectl apply -f k8s/manifests/namespace.yaml
         echo "2️⃣ 創建 configmap..."
         kubectl apply -f k8s/manifests/configmap.yaml
-        echo "3️⃣ 創建 PVC..."
+        echo "3️⃣ 創建 secrets..."
+        kubectl apply -f k8s/manifests/secrets.yaml
+        echo "4️⃣ 創建 PVC..."
         kubectl apply -f k8s/manifests/pvc.yaml
-        echo "4️⃣ 部署 Redis..."
+        echo "5️⃣ 部署 Redis..."
         kubectl apply -f k8s/manifests/redis.yaml
-        echo "5️⃣ 部署 Worker..."
+        echo "6️⃣ 部署 Worker..."
         kubectl apply -f k8s/manifests/worker.yaml
-        echo "6️⃣ 部署 API..."
+        echo "7️⃣ 部署 API..."
         kubectl apply -f k8s/manifests/api.yaml
-        echo "7️⃣ 部署 UI..."
+        echo "8️⃣ 部署 UI..."
         kubectl apply -f k8s/manifests/ui.yaml
         echo "⏳ 等待服務啟動..."
         kubectl wait --for=condition=available --timeout=300s deployment/api -n lora-system

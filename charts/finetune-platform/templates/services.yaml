@@ -1,0 +1,11 @@
+{{- $root := . -}}
+{{- $services := list (dict "name" "api" "cfg" .Values.api) (dict "name" "worker" "cfg" .Values.worker) (dict "name" "redis" "cfg" .Values.redis) (dict "name" "ui" "cfg" .Values.ui) -}}
+{{- range $idx, $service := $services }}
+{{- $cfg := $service.cfg -}}
+{{- if $cfg }}
+{{- if gt $idx 0 }}
+---
+{{- end }}
+{{ include "finetune-platform.service" (dict "context" $root "name" $service.name "cfg" $cfg) }}
+{{- end }}
+{{- end -}}

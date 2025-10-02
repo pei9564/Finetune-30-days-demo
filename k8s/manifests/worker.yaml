@@ -7,7 +7,7 @@ metadata:
     app: worker
     component: celery
 spec:
-  replicas: 2  # 可以調整副本數量
+  replicas: {{ .Values.worker.replicas | default 2 }}  # 可以調整副本數量
   selector:
     matchLabels:
       app: worker
@@ -21,6 +21,7 @@ spec:
       - name: worker
         image: finetune-app:latest  # 統一映像
         imagePullPolicy: Never  # 使用本地映像
+        workingDir: /app
         command: ["python", "-m", "celery", "-A", "app.tasks", "worker", "--loglevel=info", "-P", "solo"]
         env:
         - name: CELERY_BROKER_URL
@@ -48,6 +49,11 @@ spec:
             configMapKeyRef:
               name: lora-config
               key: PYTHONUNBUFFERED
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: lora-secrets
+              key: JWT_SECRET
         resources:
           requests:
             cpu: 200m
