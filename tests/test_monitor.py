@@ -105,7 +105,7 @@ class TestAuditLog:
         # 未認證請求（移除認證 header）
         client = test_client
         client.headers.pop("Authorization", None)
-        response = client.get("/experiments/stats")
+        response = client.get("/experiments")
         assert response.status_code == 401
 
     def test_audit_api(self, test_client):

@@ -2,7 +2,7 @@
 系統資源監控工具
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import psutil
 

@@ -5,6 +5,8 @@
         k8s-setup k8s-build k8s-build-fast k8s-deploy k8s-verify k8s-cleanup \
         k8s-status k8s-logs k8s-restart k8s-scale k8s-quick-deploy k8s-full-cleanup \
         help check-docker serve predict-health predict-text predict-positive predict-negative
+.PHONY: lint lint-conda test-conda docker-build docker-push helm-dryrun helm-deploy helm-uninstall
+
 
 # ==============================================================================
 # 通用變量和函數
@@ -45,11 +47,106 @@ define check_env_exists
 endef
 
 # ==============================================================================
+# CI/CD 指令
+# ==============================================================================
+
+TAG ?= test
+IMAGE_NAME ?= finetune-platform
+REGISTRY ?=
+REGISTRY_PREFIX := $(if $(strip $(REGISTRY)),$(strip $(REGISTRY))/,)
+IMAGE := $(REGISTRY_PREFIX)$(IMAGE_NAME):$(TAG)
+
+HELM_RELEASE ?= finetune-platform
+HELM_NAMESPACE ?= default
+HELM_CHART ?= charts/finetune-platform
+HELM_VALUES ?= $(HELM_CHART)/values.yaml
+HELM_PROD_VALUES ?= $(HELM_CHART)/values.prod.yaml
+HELM_COMMON_FLAGS := -f $(HELM_VALUES) -f $(HELM_PROD_VALUES) --namespace $(HELM_NAMESPACE) --create-namespace
+HELM_SET_FLAGS := --set image.repository=$(REGISTRY_PREFIX)$(IMAGE_NAME) --set image.tag=$(TAG)
+
+lint:
+	@if [ -n "$$CI" ]; then \
+		echo "🧹 在 CI 環境執行 flake8..."; \
+		flake8; \
+	else \
+		$(MAKE) --no-print-directory lint-conda; \
+	fi
+
+lint-conda:
+	@echo "🧹 執行 flake8..."
+	@bash -c '\
+		$(detect_env) \
+		$(check_env_exists) \
+		source $$(conda info --base)/etc/profile.d/conda.sh && \
+		conda activate $$ENV_NAME && \
+		cd $(PWD) && flake8'
+
+
+# `make test` 在 CI 中走 pytest，在本地保留舊的 Conda 流程
+test:
+	@if [ -n "$$CI" ]; then \
+		echo "🧪 在 CI 環境執行 pytest..."; \
+		pytest; \
+	else \
+		$(MAKE) --no-print-directory test-conda; \
+	fi
+
+
+
+docker-build:
+	@echo "🐳 建構 Docker 映像 $(IMAGE)"
+	@docker build -t $(IMAGE) .
+
+# 需要設定 REGISTRY（例如：youruser）才能推送到 Docker Hub
+docker-push:
+	@if [ -z "$(strip $(REGISTRY))" ]; then \
+		echo "❌ 請以 REGISTRY=<dockerhub_username> 指定 Docker Hub 帳號"; \
+		exit 1; \
+	fi
+	@echo "🚀 推送 Docker 映像 $(IMAGE)"
+	@docker push $(IMAGE)
+
+helm-dryrun:
+	@echo "🧪 Helm dry-run：$(HELM_RELEASE) -> $(HELM_NAMESPACE)"
+	@if command -v kubectl >/dev/null 2>&1 && kubectl config current-context >/dev/null 2>&1; then \
+		helm upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_COMMON_FLAGS) $(HELM_SET_FLAGS) --dry-run --debug; \
+	else \
+		echo "ℹ️ 未偵測到可用的 Kubernetes cluster，改用 helm template 驗證 chart"; \
+		helm template $(HELM_RELEASE) $(HELM_CHART) $(HELM_COMMON_FLAGS) $(HELM_SET_FLAGS) --debug >/dev/null; \
+	fi
+
+helm-deploy:
+	@echo "🚀 Helm 部署：$(HELM_RELEASE) -> $(HELM_NAMESPACE)"
+	@if [ -z "$(strip $(REGISTRY))" ]; then \
+		echo "❌ 請以 REGISTRY=<dockerhub_username> 指定 Docker Hub 帳號"; \
+		exit 1; \
+	fi
+	@if ! command -v helm >/dev/null 2>&1; then \
+		echo "❌ 找不到 helm 指令，請先安裝 Helm (https://helm.sh)"; \
+		exit 1; \
+	fi
+	@if ! command -v kubectl >/dev/null 2>&1; then \
+		echo "❌ 找不到 kubectl 指令，無法連線至 Kubernetes 叢集"; \
+		exit 1; \
+	fi
+	@if ! kubectl config current-context >/dev/null 2>&1; then \
+		echo "❌ 尚未設定可用的 Kubernetes context，請先執行 kubectl config use-context <context>"; \
+		exit 1; \
+	fi
+	@echo "📋 執行指令: helm upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_COMMON_FLAGS) --set image.tag=$(TAG) --set image.repository=$(REGISTRY_PREFIX)$(IMAGE_NAME)"
+	@helm upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_COMMON_FLAGS) $(HELM_SET_FLAGS)
+
+helm-uninstall:
+	@echo "🧹 移除 Helm 部署：$(HELM_RELEASE)"
+	@helm uninstall $(HELM_RELEASE) --namespace $(HELM_NAMESPACE)
+
+
+# ==============================================================================
 # 測試相關命令
 # ==============================================================================
 
 # 運行所有測試
-test:
+test-conda:
 	@echo "🧪 運行所有測試..."
 	@bash -c '\
 		$(detect_env) \
@@ -456,7 +553,10 @@ help:
 	@echo "     make predict-negative - 測試負面評論範例"
 	@echo ""
 	@echo "🧪 測試命令："
-	@echo "  make test          - 運行所有測試"
+	@echo "  make lint          - 運行 flake8（CI/簡易環境）"
+	@echo "  make lint-conda    - 使用 Conda 環境運行 flake8"
+	@echo "  make test          - 運行 pytest（CI/簡易環境）"
+	@echo "  make test-conda    - 使用 Conda 環境運行所有測試"
 	@echo "  make test-v        - 運行所有測試（詳細模式）"
 	@echo ""
 	@echo "🚀 訓練模式："

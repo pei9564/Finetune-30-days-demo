@@ -27,7 +27,7 @@ from app.train import (
 )
 
 # 全局 logger，會在 setup_experiment_dir 中初始化
-logger: logging.Logger
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 def setup_experiment_dir(config):

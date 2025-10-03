@@ -75,6 +75,7 @@ def mock_celery_task():
             "accuracy": 0.85,
             "loss": 0.2345,
         },
+        "config": {"user_id": "test_user_1"},
     }
 
     # 設置後端
@@ -83,6 +84,7 @@ def mock_celery_task():
         "status": "SUCCESS",
         "result": mock_task.result,
         "task_id": mock_task.id,
+        "kwargs": {"config": {"user_id": "test_user_1"}},
     }
     mock_backend.get_task_meta.return_value = task_meta
     mock_backend._get_task_meta_for.return_value = task_meta
@@ -211,7 +213,7 @@ class TestTrainingFlow:
 
         # 手動創建資料庫記錄（模擬訓練任務完成後的資料庫寫入）
         test_db.execute(
-            """INSERT INTO experiments (id, name, created_at, config_path, log_path, train_runtime, eval_accuracy) 
+            """INSERT INTO experiments (id, name, created_at, config_path, log_path, train_runtime, eval_accuracy)
                VALUES (?, ?, datetime('now'), ?, ?, ?, ?)""",
             (
                 "test_exp_1",

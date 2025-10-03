@@ -204,11 +204,15 @@ class TestTraining:
                 # Mock 訓練結果
                 mock_train_result = MagicMock()
                 mock_train_result.global_step = 100
-                mock_train_result.metrics = {"train_runtime": 10.5}
+                mock_train_result.metrics = {
+                    "train_runtime": 10.5,
+                    "train_samples_per_second": 32.0,
+                    "train_loss": 0.1,
+                }
 
-                mock_eval_result = {"eval_accuracy": 0.85}
+                mock_eval_result = {"eval_accuracy": 0.85, "eval_loss": 0.42}
 
-                with patch("transformers.Trainer") as mock_trainer:
+                with patch("app.train.runner.Trainer") as mock_trainer:
                     mock_trainer.return_value.train.return_value = mock_train_result
                     mock_trainer.return_value.evaluate.return_value = mock_eval_result
 
@@ -227,7 +231,9 @@ class TestTraining:
                         eval_dataset,
                         "results/test",
                     )
-                    train_result, eval_result = train_and_evaluate(test_config, trainer)
+                    train_result, eval_result, _ = train_and_evaluate(
+                        test_config, trainer
+                    )
 
                     # 驗證結果格式正確
                     assert hasattr(train_result, "global_step")
@@ -259,7 +265,7 @@ class TestTraining:
             }
 
             # Mock 訓練器
-            with patch("transformers.Trainer"):
+            with patch("app.train.runner.Trainer"):
                 # 設置訓練環境
                 device = setup_device(test_config)
                 model, tokenizer = load_model_and_tokenizer(test_config, device)
@@ -318,11 +324,15 @@ class TestTraining:
             # Mock 訓練結果
             mock_train_result = MagicMock()
             mock_train_result.global_step = 100
-            mock_train_result.metrics = {"train_runtime": 15.5}
+            mock_train_result.metrics = {
+                "train_runtime": 15.5,
+                "train_samples_per_second": 28.5,
+                "train_loss": 0.2,
+            }
 
-            mock_eval_result = {"eval_accuracy": 0.75}
+            mock_eval_result = {"eval_accuracy": 0.75, "eval_loss": 0.58}
 
-            with patch("transformers.Trainer") as mock_trainer:
+            with patch("app.train.runner.Trainer") as mock_trainer:
                 mock_trainer.return_value.train.return_value = mock_train_result
                 mock_trainer.return_value.evaluate.return_value = mock_eval_result
 
@@ -341,7 +351,9 @@ class TestTraining:
                     eval_dataset,
                     "results/test",
                 )
-                train_result, eval_result = train_and_evaluate(test_config, trainer)
+                train_result, eval_result, _ = train_and_evaluate(
+                    test_config, trainer
+                )
 
                 # 驗證結果格式正確
                 assert hasattr(train_result, "global_step")

@@ -12,6 +12,7 @@ import logging
 import os
 import shutil
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 class CheckpointMetrics:
     """Checkpoint 指標數據"""
 
-    path: str
+    path: Path
     accuracy: float = 0.0
     runtime: float = float("inf")
     is_last: bool = False
@@ -75,19 +76,18 @@ class CheckpointManager:
             return []
 
         # 檢查是否有必要的檔案
-        checkpoints = []
+        checkpoints: List[Path] = []
         for item in os.listdir(experiment_dir):
-            item_path = os.path.join(experiment_dir, item)
+            item_path = Path(experiment_dir) / item
             if (
-                os.path.isdir(item_path)
+                item_path.is_dir()
                 and item.startswith(self.checkpoint_prefix)
-                and os.path.exists(os.path.join(item_path, "adapter_config.json"))
-                and os.path.exists(os.path.join(item_path, "adapter_model.safetensors"))
+                and (item_path / "adapter_config.json").exists()
+                and (item_path / "adapter_model.safetensors").exists()
             ):
                 checkpoints.append(item_path)
 
-        # 按照創建時間排序
-        return sorted(checkpoints, key=lambda x: os.path.getctime(x), reverse=True)
+        return sorted(checkpoints, key=lambda p: p.stat().st_ctime, reverse=True)
 
     def read_checkpoint_metrics(self, checkpoint: str) -> Optional[CheckpointMetrics]:
         """讀取 checkpoint 的評估指標
@@ -99,11 +99,11 @@ class CheckpointManager:
             Optional[CheckpointMetrics]: checkpoint 指標數據，如果讀取失敗則返回 None
         """
         try:
-            state_file = os.path.join(checkpoint, "trainer_state.json")
-            if not os.path.exists(state_file):
+            state_file = checkpoint / "trainer_state.json"
+            if not state_file.exists():
                 return None
 
-            with open(state_file) as f:
+            with state_file.open() as f:
                 state = json.load(f)
                 return CheckpointMetrics(
                     path=checkpoint,
@@ -145,7 +145,7 @@ class CheckpointManager:
         metrics_list[-1].is_last = True
 
         # 選擇要保留的 checkpoints
-        to_keep = set()
+        to_keep: Set[Path] = set()
         kept_metrics = {}
 
         # 1. 最佳評估準確率
@@ -182,7 +182,7 @@ class CheckpointManager:
                     try:
                         shutil.rmtree(checkpoint)
                         logger.info(
-                            f"🗑️ 已刪除 checkpoint: {os.path.basename(checkpoint)}"
+                            f"🗑️ 已刪除 checkpoint: {Path(checkpoint).name}"
                         )
                     except Exception as e:
                         logger.warning(f"⚠️ 刪除 checkpoint 失敗 {checkpoint}: {e}")
@@ -190,13 +190,13 @@ class CheckpointManager:
             # 記錄保留的 checkpoints
             logger.info("✅ Checkpoint 清理完成，保留:")
             logger.info(
-                f"   - 最佳準確率 ({kept_metrics['best'].accuracy:.4f}): {os.path.basename(kept_metrics['best'].path)}"
+                f"   - 最佳準確率 ({kept_metrics['best'].accuracy:.4f}): {Path(kept_metrics['best'].path).name}"
             )
             logger.info(
-                f"   - 最後檢查點: {os.path.basename(kept_metrics['last'].path)}"
+                f"   - 最後檢查點: {Path(kept_metrics['last'].path).name}"
             )
             logger.info(
-                f"   - 最快訓練: {os.path.basename(kept_metrics['fastest'].path)}"
+                f"   - 最快訓練: {Path(kept_metrics['fastest'].path).name}"
             )
 
         except Exception as e:

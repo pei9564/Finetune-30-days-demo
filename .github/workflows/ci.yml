@@ -1,0 +1,91 @@
+name: CI/CD Pipeline
+
+on:
+  pull_request:
+    branches:
+      - '**'
+  push:
+    branches:
+      - '**'
+    tags:
+      - 'day-*'
+
+jobs:
+  pipeline:
+    name: CI/CD Pipeline
+    runs-on: ubuntu-latest
+    env:
+      PYTHON_VERSION: '3.11'
+      IMAGE_NAME: finetune-platform
+      REGISTRY: Finetune-30-days
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install flake8 pytest
+
+      - name: Lint
+        run: make lint
+
+      - name: Test
+        run: make test
+
+      # -------- main push (helm dry-run) --------
+      - name: Set up Helm
+        if: github.ref == 'refs/heads/main'
+        uses: azure/setup-helm@v4
+
+      - name: Helm dry run
+        if: github.ref == 'refs/heads/main'
+        env:
+          REGISTRY: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: make helm-dryrun TAG=test REGISTRY=${REGISTRY}
+
+      # -------- release tag (day-*) --------
+      - name: Set up Docker Buildx
+        if: startsWith(github.ref, 'refs/tags/day-')
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image (release)
+        if: startsWith(github.ref, 'refs/tags/day-')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: make docker-build TAG=${TAG} REGISTRY=${{ env.REGISTRY }}
+
+      - name: Docker login
+        if: startsWith(github.ref, 'refs/tags/day-')
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push Docker image (release)
+        if: startsWith(github.ref, 'refs/tags/day-')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: make docker-push TAG=${TAG} REGISTRY=${{ env.REGISTRY }}
+
+      - name: Helm deploy (echo only)
+        if: startsWith(github.ref, 'refs/tags/day-')
+        run: |
+          echo "本來這裡會執行 Helm 部署"
+          echo "請在有 Kubernetes 環境的機器上手動執行：helm upgrade --install finetune charts/finetune-platform -f values.yaml --set image.tag=${TAG} --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          echo "目前 CI 僅輸出提示，不會進行實際部署。"

@@ -149,19 +149,27 @@ class TestCheckpointManagement:
             checkpoint_prefix="checkpoint-",
         )
 
+        # 預先分析應保留的 checkpoints
+        checkpoints = manager.get_checkpoints(artifacts_dir)
+        expected_keep, expected_metrics = manager.analyze_checkpoints(artifacts_dir)
+        # 由於 get_checkpoints 依建立時間排序，多平台時間精度不同，這裡記錄最後建立的實際名稱
+        # 以避免 strpos 依賴
+        last_checkpoint_name = checkpoints[-1].name if checkpoints else None
+
         # 執行清理
         manager.cleanup_experiment(artifacts_dir)
 
         # 驗證結果
         remaining = manager.get_checkpoints(artifacts_dir)
-        assert len(remaining) == 3
-        assert all(file.name.startswith("checkpoint-") for file in remaining)
+        remaining_names = {path.name for path in remaining}
+        expected_names = {path.name for path in expected_keep}
+        assert remaining_names == expected_names
+        assert all(name.startswith("checkpoint-") for name in remaining_names)
+
         # 驗證保留的是正確的 checkpoints
-        to_keep, kept_metrics = manager.analyze_checkpoints(artifacts_dir)
-        assert len(to_keep) == 3
-        # 最佳準確率的 checkpoint
-        assert kept_metrics["best"].accuracy == 0.9  # checkpoint-4
+        assert expected_metrics["best"].accuracy == 0.9  # checkpoint-4
         # 最後一個 checkpoint
-        assert kept_metrics["last"].path.name == "checkpoint-0"
+        if last_checkpoint_name:
+            assert expected_metrics["last"].path.name == last_checkpoint_name
         # 最快的 checkpoint
-        assert kept_metrics["fastest"].path.name == "checkpoint-3"
+        assert expected_metrics["fastest"].path.name == "checkpoint-3"

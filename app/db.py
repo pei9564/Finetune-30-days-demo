@@ -239,7 +239,7 @@ class Database:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
-                SELECT 
+                SELECT
                     COUNT(*) as total_experiments,
                     AVG(train_runtime) as avg_runtime,
                     AVG(eval_accuracy) as avg_accuracy,
