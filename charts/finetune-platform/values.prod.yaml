@@ -76,3 +76,39 @@ ui:
     limits:
       cpu: 2
       memory: 2Gi
+
+prometheus:
+  enabled: true
+  image:
+    repository: prom/prometheus
+    tag: latest
+  service:
+    type: ClusterIP
+    port: 9090
+    nodePort: null
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+
+grafana:
+  enabled: true
+  image:
+    repository: grafana/grafana
+    tag: latest
+  adminUser: admin
+  adminPassword: admin
+  service:
+    type: NodePort
+    port: 3000
+    nodePort: 30300
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1
+      memory: 1Gi

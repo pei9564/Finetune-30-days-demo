@@ -16,6 +16,7 @@ celery>=5.3.0
 redis>=5.0.0
 fastapi>=0.100.0
 uvicorn>=0.23.0
+prometheus-client>=0.17.0
 streamlit>=1.26.0
 mlflow>=2.8.0  # MLflow 實驗追蹤
 PyJWT>=2.8.0  # JWT 支援

@@ -13,6 +13,12 @@ from app.monitor.audit_utils import (
     init_audit_table,
     save_audit_log,
 )
+from app.monitor.exporter import (
+    observe_task_duration,
+    record_task_failure,
+    record_task_success,
+    router as metrics_router,
+)
 from app.monitor.logging_utils import calculate_tokens_per_sec, save_training_metrics
 from app.monitor.system_metrics import SystemMetricsMonitor
 
@@ -27,4 +33,8 @@ __all__ = [
     "save_training_metrics",
     # 系統監控
     "SystemMetricsMonitor",
+    "metrics_router",
+    "record_task_success",
+    "record_task_failure",
+    "observe_task_duration",
 ]

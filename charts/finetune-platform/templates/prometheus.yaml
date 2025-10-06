@@ -1,0 +1,80 @@
+{{- if .Values.prometheus.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "finetune-platform.fullname" . }}-prometheus-config
+  namespace: {{ .Values.namespace | default "lora-system" }}
+  labels:
+    {{- include "finetune-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+    monitoring: "true"
+data:
+  prometheus.yml: |-
+{{ tpl ((.Files.Get "files/prometheus.yml")) . | indent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "finetune-platform.fullname" . }}-prometheus
+  namespace: {{ .Values.namespace | default "lora-system" }}
+  labels:
+    {{- include "finetune-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "finetune-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: prometheus
+  template:
+    metadata:
+      labels:
+        {{- include "finetune-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: "{{ .Values.prometheus.image.repository }}:{{ .Values.prometheus.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+          ports:
+            - containerPort: {{ .Values.prometheus.service.port }}
+              name: http
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+            - name: data
+              mountPath: /prometheus
+          resources:
+            {{- toYaml .Values.prometheus.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "finetune-platform.fullname" . }}-prometheus-config
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "finetune-platform.fullname" . }}-prometheus
+  namespace: {{ .Values.namespace | default "lora-system" }}
+  labels:
+    {{- include "finetune-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+spec:
+  type: {{ .Values.prometheus.service.type }}
+  selector:
+    {{- include "finetune-platform.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+  ports:
+    - name: http
+      port: {{ .Values.prometheus.service.port }}
+      targetPort: {{ .Values.prometheus.service.port }}
+      protocol: TCP
+{{- if and (eq .Values.prometheus.service.type "NodePort") .Values.prometheus.service.nodePort }}
+      nodePort: {{ .Values.prometheus.service.nodePort }}
+{{- end }}
+{{- end }}

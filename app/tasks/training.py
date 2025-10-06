@@ -4,6 +4,7 @@
 
 import os
 from datetime import datetime
+from time import perf_counter
 from typing import Dict
 
 from celery.exceptions import SoftTimeLimitExceeded
@@ -26,6 +27,7 @@ from app.train import (
     setup_training,
     train_and_evaluate,
 )
+from app.monitor.exporter import record_task_failure, record_task_success
 
 # 配置任務錯誤日誌
 task_logger = setup_system_logger(
@@ -74,6 +76,8 @@ def train_lora(config: Dict) -> Dict:
         TrainingTimeoutError: 當訓練超過時間限制
         TrainingError: 其他訓練相關錯誤
     """
+    start_time = perf_counter()
+
     try:
         config = Config(**config)
 
@@ -117,6 +121,9 @@ def train_lora(config: Dict) -> Dict:
         )
         registry.save_model_card(model_card)
 
+        duration = perf_counter() - start_time
+        record_task_success(duration_seconds=duration)
+
         # 返回結果
         return {
             "status": "success",
@@ -133,10 +140,16 @@ def train_lora(config: Dict) -> Dict:
             },
         }
     except RuntimeError as e:
+        duration = perf_counter() - start_time
+        record_task_failure(duration_seconds=duration)
         if "out of memory" in str(e).lower():
             raise OutOfMemoryError(f"訓練過程記憶體不足: {str(e)}")
         raise TrainingError(f"訓練過程發生錯誤: {str(e)}")
     except SoftTimeLimitExceeded:
+        duration = perf_counter() - start_time
+        record_task_failure(duration_seconds=duration)
         raise TrainingTimeoutError("訓練超過時間限制")
     except Exception as e:
+        duration = perf_counter() - start_time
+        record_task_failure(duration_seconds=duration)
         raise TrainingError(f"未預期的錯誤: {str(e)}")

@@ -15,6 +15,7 @@ from app.api.routes import (
 )
 from app.exceptions import setup_error_handlers
 from app.monitor.audit_utils import AuditLogMiddleware, init_audit_table
+from app.monitor.exporter import router as metrics_router
 
 app = FastAPI(title="LoRA Training API")
 setup_error_handlers(app)  # 設置全域錯誤處理
@@ -33,3 +34,4 @@ app.include_router(experiments_router)
 app.include_router(audit_router)
 app.include_router(models_router)
 app.include_router(mlflow_router)  # MLflow 端點（公開，不需要認證）
+app.include_router(metrics_router)

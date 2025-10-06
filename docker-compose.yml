@@ -24,6 +24,7 @@ services:
       - ./config:/app/config
       - ./data:/app/data
       - ./mlruns:/app/mlruns
+      - prometheus_multiproc:/tmp/prometheus
     depends_on:
       redis:
         condition: service_healthy
@@ -37,6 +38,7 @@ services:
       - TZ=${TZ}
       - PYTHONPATH=${PYTHONPATH}
       - PYTHONUNBUFFERED=${PYTHONUNBUFFERED}
+      - PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus
     networks:
       - lora_network
 
@@ -53,6 +55,7 @@ services:
       - ./config:/app/config
       - ./data:/app/data
       - ./mlruns:/app/mlruns
+      - prometheus_multiproc:/tmp/prometheus
     depends_on:
       redis:
         condition: service_healthy
@@ -68,6 +71,7 @@ services:
       - TZ=${TZ}
       - PYTHONPATH=${PYTHONPATH}
       - PYTHONUNBUFFERED=${PYTHONUNBUFFERED}
+      - PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus
     networks:
       - lora_network
 
@@ -116,6 +120,40 @@ services:
     networks:
       - lora_network
 
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      api:
+        condition: service_started
+    networks:
+      - lora_network
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/etc/grafana/dashboards:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+    depends_on:
+      prometheus:
+        condition: service_started
+    networks:
+      - lora_network
+
 networks:
   lora_network:
     driver: bridge
@@ -123,3 +161,6 @@ networks:
 volumes:
   redis_data:
   mlflow_data:
+  prometheus_data:
+  grafana_data:
+  prometheus_multiproc:
