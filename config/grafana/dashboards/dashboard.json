@@ -183,7 +183,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(task_duration_seconds_sum[5m]) / rate(task_duration_seconds_count[5m])",
+          "expr": "sum(increase(task_duration_seconds_sum[10m])) / clamp_min(sum(increase(task_duration_seconds_count[10m])), 1)",
           "legendFormat": "Avg Duration",
           "range": true,
           "refId": "A"

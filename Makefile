@@ -4,7 +4,7 @@
         start-services stop-services restart-services logs-services logs-service \
         k8s-setup k8s-build k8s-build-fast k8s-deploy k8s-verify k8s-cleanup \
         k8s-status k8s-logs k8s-restart k8s-scale k8s-quick-deploy k8s-full-cleanup \
-        help check-docker serve predict-health predict-text predict-positive predict-negative
+        help check-docker serve predict-health predict-text predict-positive predict-negative load-test
 .PHONY: lint lint-conda test-conda docker-build docker-push helm-dryrun helm-deploy helm-uninstall
 
 
@@ -360,7 +360,11 @@ start-services: check-docker
 	@echo "✅ 服務已啟動！"
 	@echo "💡 提示："
 	@echo "  - API 服務：http://localhost:8000"
+	@echo "    ↪ Swagger UI：http://localhost:8000/docs"
 	@echo "  - UI 界面：http://localhost:8501"
+	@echo "  - MLflow Tracking UI：http://localhost:5001"
+	@echo "  - Prometheus：http://localhost:9090"
+	@echo "  - Grafana：http://localhost:3000 (預設 admin/admin)"
 	@echo "  - Redis：localhost:6379"
 	@echo "  - 使用 'make logs-services' 查看服務日誌"
 
@@ -457,6 +461,16 @@ k8s-cleanup:
 # 完全清理
 k8s-full-cleanup:
 	@./k8s/k8s.sh full-cleanup
+
+# 壓力測試
+load-test:
+	@echo "🐝 執行負載測試..."
+	@bash -c '\
+		$(detect_env) \
+		$(check_env_exists) \
+		source $$(conda info --base)/etc/profile.d/conda.sh && \
+		conda activate $$ENV_NAME && \
+		cd $(PWD) && locust -f tests/load_test.py --headless -u 5 -r 5'
 
 # ==============================================================================
 # 推理服務相關命令
