@@ -3,6 +3,27 @@ namespace: lora-system
 global:
   imagePullPolicy: IfNotPresent
 
+storage:
+  enabled: false
+
+storageHostPath: /mnt/data/finetune-results
+
+config:
+  name: lora-config
+  data:
+    CELERY_BROKER_URL: "redis://finetune-platform-redis.lora-system.svc.cluster.local:6379/0"
+    CELERY_RESULT_BACKEND: "redis://finetune-platform-redis.lora-system.svc.cluster.local:6379/1"
+    API_URL: "http://finetune-platform-api.lora-system.svc.cluster.local:8000"
+    API_HOST: "0.0.0.0"
+    API_PORT: "8000"
+    REDIS_HOST: "finetune-platform-redis.lora-system.svc.cluster.local"
+    REDIS_PORT: "6379"
+    REDIS_URL: "redis://finetune-platform-redis.lora-system.svc.cluster.local:6379"
+    UI_PORT: "8501"
+    PYTHONPATH: "/app"
+    PYTHONUNBUFFERED: "1"
+    TZ: "Asia/Taipei"
+
 secrets:
   name: lora-secrets
   jwtSecret: your-secret-key
@@ -29,6 +50,7 @@ worker:
     repository: finetune-app
     tag: latest
   replicas: 2
+  volumeClaim: results-pvc
   service:
     type: ClusterIP
     port: 5555
@@ -42,11 +64,14 @@ worker:
       cpu: 1
       memory: 1Gi
 
+workerPools: []
+
 redis:
   image:
     repository: redis
     tag: latest
   replicas: 1
+  hostPath: /mnt/data/finetune-results/redis
   service:
     type: ClusterIP
     port: 6379

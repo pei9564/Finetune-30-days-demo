@@ -15,6 +15,10 @@
 {{- end -}}
 {{- end -}}
 
+{{- define "finetune-platform.controlNamespace" -}}
+{{- default "lora-system" .Values.namespace -}}
+{{- end -}}
+
 {{- define "finetune-platform.labels" -}}
 app.kubernetes.io/name: {{ include "finetune-platform.name" . }}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | trunc 63 | trimSuffix "-" }}
@@ -29,7 +33,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{- define "finetune-platform.service" -}}
 {{- $ctx := .context -}}
-{{- $namespace := $ctx.Values.namespace | default "lora-system" -}}
+{{- $namespace := default (include "finetune-platform.controlNamespace" $ctx) .namespace -}}
 apiVersion: v1
 kind: Service
 metadata:

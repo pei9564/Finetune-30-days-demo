@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: user-quota
+  namespace: lora-system
+spec:
+  hard:
+    pods: "3"
+    requests.cpu: "1"
+    requests.memory: "2Gi"

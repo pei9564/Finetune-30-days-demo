@@ -1,0 +1,35 @@
+{{- $root := . -}}
+{{- $config := .Values.config -}}
+{{- if $config }}
+  {{- $namespaces := dict (include "finetune-platform.controlNamespace" $root) true -}}
+  {{- range $pool := .Values.workerPools }}
+    {{- with $pool.namespace }}
+      {{- if not (hasKey $namespaces .) }}
+        {{- $_ := set $namespaces . true -}}
+      {{- end }}
+    {{- else }}
+      {{- if not (hasKey $namespaces (include "finetune-platform.controlNamespace" $root)) }}
+        {{- $_ := set $namespaces (include "finetune-platform.controlNamespace" $root) true -}}
+      {{- end }}
+    {{- end }}
+  {{- end }}
+  {{- $keys := sortAlpha (keys $namespaces) -}}
+  {{- $first := true -}}
+  {{- range $ns := $keys }}
+    {{- if not $first }}
+---
+    {{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $config.name | default "lora-config" }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "finetune-platform.labels" $root | nindent 4 }}
+data:
+{{- range $key, $value := $config.data }}
+  {{ $key }}: {{ $value | quote }}
+{{- end }}
+  {{- $first = false -}}
+  {{- end }}
+{{- end }}

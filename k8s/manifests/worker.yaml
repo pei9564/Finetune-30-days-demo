@@ -7,7 +7,7 @@ metadata:
     app: worker
     component: celery
 spec:
-  replicas: {{ .Values.worker.replicas | default 2 }}  # 可以調整副本數量
+  replicas: 2  # 可以調整副本數量
   selector:
     matchLabels:
       app: worker

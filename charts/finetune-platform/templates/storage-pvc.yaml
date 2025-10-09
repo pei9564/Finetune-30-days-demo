@@ -1,0 +1,45 @@
+{{- if and .Values.storage .Values.storage.enabled }}
+{{- $root := . -}}
+{{- $controlNs := include "finetune-platform.controlNamespace" $root -}}
+{{- $pvName := .Values.storage.pv.name -}}
+{{- $defaultAccess := default (list "ReadWriteMany") .Values.storage.control.accessModes -}}
+{{- $defaultStorage := default "20Gi" .Values.storage.control.storage -}}
+{{- $storageClass := default "" .Values.storage.pv.storageClassName -}}
+{{- $entries := dict -}}
+{{- $controlPvc := default "results-pvc" .Values.storage.control.pvcName -}}
+{{- $_ := set $entries (printf "%s/%s" $controlNs $controlPvc) (dict "namespace" $controlNs "claim" $controlPvc) -}}
+{{- range $pool := .Values.workerPools }}
+  {{- $ns := default $controlNs $pool.namespace -}}
+  {{- $claim := default $controlPvc $pool.volumeClaim -}}
+  {{- $key := printf "%s/%s" $ns $claim -}}
+  {{- $_ := set $entries $key (dict "namespace" $ns "claim" $claim) -}}
+{{- end }}
+{{- $ordered := sortAlpha (keys $entries) -}}
+{{- $first := true -}}
+{{- range $key := $ordered }}
+{{- $entry := index $entries $key -}}
+{{- if not $first }}
+---
+{{- end }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $entry.claim }}
+  namespace: {{ $entry.namespace }}
+  labels:
+    app.kubernetes.io/instance: {{ $root.Release.Name }}
+    app.kubernetes.io/managed-by: {{ $root.Release.Service }}
+  annotations:
+    meta.helm.sh/release-name: {{ $root.Release.Name }}
+    meta.helm.sh/release-namespace: {{ $root.Release.Namespace }}
+spec:
+  accessModes:
+{{ toYaml $defaultAccess | indent 4 }}
+  resources:
+    requests:
+      storage: {{ $defaultStorage }}
+  storageClassName: {{ $storageClass | quote }}
+  volumeName: {{ $pvName }}
+{{- $first = false -}}
+{{- end }}
+{{- end }}

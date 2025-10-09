@@ -1,0 +1,20 @@
+{{- $root := . -}}
+{{- $first := true -}}
+{{- range $pool := .Values.workerPools }}
+{{- $quota := $pool.quota -}}
+{{- if and $quota $quota.enabled }}
+{{- $namespace := default (include "finetune-platform.controlNamespace" $root) $pool.namespace -}}
+{{- if not $first }}
+---
+{{- end }}
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ default (printf "%s-quota" $pool.name) $quota.name }}
+  namespace: {{ $namespace }}
+spec:
+  hard:
+{{ toYaml (default (dict) $quota.hard) | indent 4 }}
+{{- $first = false -}}
+{{- end }}
+{{- end }}

@@ -7,6 +7,11 @@
         help check-docker serve predict-health predict-text predict-positive predict-negative load-test
 .PHONY: lint lint-conda test-conda docker-build docker-push helm-dryrun helm-deploy helm-uninstall
 
+ifneq (,$(wildcard .env))
+include .env
+export $(shell sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)[[:space:]]*=.*/\1/p' .env)
+endif
+
 
 # ==============================================================================
 # 通用變量和函數
@@ -50,19 +55,14 @@ endef
 # CI/CD 指令
 # ==============================================================================
 
-TAG ?= test
-IMAGE_NAME ?= finetune-platform
-REGISTRY ?=
-REGISTRY_PREFIX := $(if $(strip $(REGISTRY)),$(strip $(REGISTRY))/,)
-IMAGE := $(REGISTRY_PREFIX)$(IMAGE_NAME):$(TAG)
+IMAGE ?= finetune-app:latest
 
 HELM_RELEASE ?= finetune-platform
-HELM_NAMESPACE ?= default
+HELM_NAMESPACE ?= lora-system
 HELM_CHART ?= charts/finetune-platform
 HELM_VALUES ?= $(HELM_CHART)/values.yaml
 HELM_PROD_VALUES ?= $(HELM_CHART)/values.prod.yaml
 HELM_COMMON_FLAGS := -f $(HELM_VALUES) -f $(HELM_PROD_VALUES) --namespace $(HELM_NAMESPACE) --create-namespace
-HELM_SET_FLAGS := --set image.repository=$(REGISTRY_PREFIX)$(IMAGE_NAME) --set image.tag=$(TAG)
 
 lint:
 	@if [ -n "$$CI" ]; then \
@@ -97,30 +97,21 @@ docker-build:
 	@echo "🐳 建構 Docker 映像 $(IMAGE)"
 	@docker build -t $(IMAGE) .
 
-# 需要設定 REGISTRY（例如：youruser）才能推送到 Docker Hub
 docker-push:
-	@if [ -z "$(strip $(REGISTRY))" ]; then \
-		echo "❌ 請以 REGISTRY=<dockerhub_username> 指定 Docker Hub 帳號"; \
-		exit 1; \
-	fi
 	@echo "🚀 推送 Docker 映像 $(IMAGE)"
 	@docker push $(IMAGE)
 
 helm-dryrun:
 	@echo "🧪 Helm dry-run：$(HELM_RELEASE) -> $(HELM_NAMESPACE)"
 	@if command -v kubectl >/dev/null 2>&1 && kubectl config current-context >/dev/null 2>&1; then \
-		helm upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_COMMON_FLAGS) $(HELM_SET_FLAGS) --dry-run --debug; \
+		helm upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_COMMON_FLAGS) --dry-run --debug; \
 	else \
 		echo "ℹ️ 未偵測到可用的 Kubernetes cluster，改用 helm template 驗證 chart"; \
-		helm template $(HELM_RELEASE) $(HELM_CHART) $(HELM_COMMON_FLAGS) $(HELM_SET_FLAGS) --debug >/dev/null; \
+		helm template $(HELM_RELEASE) $(HELM_CHART) $(HELM_COMMON_FLAGS) --debug >/dev/null; \
 	fi
 
 helm-deploy:
 	@echo "🚀 Helm 部署：$(HELM_RELEASE) -> $(HELM_NAMESPACE)"
-	@if [ -z "$(strip $(REGISTRY))" ]; then \
-		echo "❌ 請以 REGISTRY=<dockerhub_username> 指定 Docker Hub 帳號"; \
-		exit 1; \
-	fi
 	@if ! command -v helm >/dev/null 2>&1; then \
 		echo "❌ 找不到 helm 指令，請先安裝 Helm (https://helm.sh)"; \
 		exit 1; \
@@ -133,8 +124,8 @@ helm-deploy:
 		echo "❌ 尚未設定可用的 Kubernetes context，請先執行 kubectl config use-context <context>"; \
 		exit 1; \
 	fi
-	@echo "📋 執行指令: helm upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_COMMON_FLAGS) --set image.tag=$(TAG) --set image.repository=$(REGISTRY_PREFIX)$(IMAGE_NAME)"
-	@helm upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_COMMON_FLAGS) $(HELM_SET_FLAGS)
+	@echo "📋 執行指令: helm upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_COMMON_FLAGS)"
+	@helm upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_COMMON_FLAGS)
 
 helm-uninstall:
 	@echo "🧹 移除 Helm 部署：$(HELM_RELEASE)"

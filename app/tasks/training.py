@@ -1,8 +1,7 @@
-"""
-訓練任務定義
-"""
+"""訓練任務定義"""
 
 import os
+from copy import deepcopy
 from datetime import datetime
 from time import perf_counter
 from typing import Dict
@@ -10,6 +9,9 @@ from typing import Dict
 from celery.exceptions import SoftTimeLimitExceeded
 from celery.signals import task_failure
 
+from fastapi import HTTPException, Request
+
+from app.auth.jwt_utils import decode_token
 from app.core.config import Config
 from app.core.logger import setup_system_logger
 from app.exceptions import (
@@ -33,6 +35,44 @@ from app.monitor.exporter import record_task_failure, record_task_success
 task_logger = setup_system_logger(
     name="celery.task.error", log_file="logs/task_errors.log", console_output=True
 )
+
+DEFAULT_TENANT_NAMESPACE = "tenant-user"
+
+
+def get_tenant_from_token(request: Request) -> str:
+    """從請求的 JWT Token 解析租戶資訊。"""
+
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return DEFAULT_TENANT_NAMESPACE
+
+    parts = auth_header.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return DEFAULT_TENANT_NAMESPACE
+
+    token = parts[1]
+    try:
+        payload = decode_token(token)
+    except HTTPException:
+        return DEFAULT_TENANT_NAMESPACE
+
+    tenant = payload.get("tenant")
+    if tenant:
+        return tenant
+
+    role = payload.get("role")
+    return "tenant-admin" if role == "admin" else DEFAULT_TENANT_NAMESPACE
+
+
+def create_training_job(config: Dict, request: Request):
+    """建立訓練任務並注入租戶命名空間。"""
+
+    tenant = get_tenant_from_token(request)
+    job_config = deepcopy(config)
+    metadata = job_config.get("metadata") or {}
+    metadata["namespace"] = tenant
+    job_config["metadata"] = metadata
+    return train_lora.delay(config=job_config)
 
 
 @task_failure.connect
@@ -77,6 +117,8 @@ def train_lora(config: Dict) -> Dict:
         TrainingError: 其他訓練相關錯誤
     """
     start_time = perf_counter()
+    metadata = config.get("metadata", {}) or {}
+    namespace = metadata.get("namespace", DEFAULT_TENANT_NAMESPACE)
 
     try:
         config = Config(**config)
@@ -138,6 +180,7 @@ def train_lora(config: Dict) -> Dict:
                 "experiment_name": config.experiment_name,
                 "user_id": config.user_id,
             },
+            "metadata": {"namespace": namespace},
         }
     except RuntimeError as e:
         duration = perf_counter() - start_time

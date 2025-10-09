@@ -3,6 +3,27 @@ namespace: lora-system
 global:
   imagePullPolicy: IfNotPresent
 
+storage:
+  enabled: false
+
+storageHostPath: /mnt/data/finetune-results
+
+config:
+  name: lora-config
+  data:
+    CELERY_BROKER_URL: "redis://finetune-platform-redis.lora-system.svc.cluster.local:6379/0"
+    CELERY_RESULT_BACKEND: "redis://finetune-platform-redis.lora-system.svc.cluster.local:6379/1"
+    API_URL: "http://finetune-platform-api.lora-system.svc.cluster.local:8000"
+    API_HOST: "0.0.0.0"
+    API_PORT: "8000"
+    REDIS_HOST: "finetune-platform-redis.lora-system.svc.cluster.local"
+    REDIS_PORT: "6379"
+    REDIS_URL: "redis://finetune-platform-redis.lora-system.svc.cluster.local:6379"
+    UI_PORT: "8501"
+    PYTHONPATH: "/app"
+    PYTHONUNBUFFERED: "1"
+    TZ: "Asia/Taipei"
+
 secrets:
   name: lora-secrets
   jwtSecret: change-me
@@ -10,8 +31,8 @@ secrets:
 api:
   image:
     repository: finetune-app
-    tag: v1.0.0
-  replicas: 3
+    tag: latest
+  replicas: 1
   service:
     type: NodePort
     port: 8000
@@ -27,8 +48,9 @@ api:
 worker:
   image:
     repository: finetune-app
-    tag: v1.0.0
-  replicas: 4
+    tag: latest
+  replicas: 1
+  volumeClaim: results-pvc
   service:
     type: ClusterIP
     port: 5555
@@ -42,11 +64,46 @@ worker:
       cpu: 2
       memory: 2Gi
 
+workerPools:
+  - name: tenant-admin
+    namespace: tenant-admin
+    createNamespace: true
+    replicas: 1
+    image:
+      repository: finetune-app
+      tag: latest
+    volumeClaim: tenant-admin-results-pvc
+    volumeName: tenant-admin-results-pv
+    quota:
+      enabled: true
+      name: tenant-admin-quota
+      hard:
+        pods: "10"
+        requests.cpu: "4"
+        requests.memory: "8Gi"
+  - name: tenant-user
+    namespace: tenant-user
+    createNamespace: true
+    replicas: 2
+    image:
+      repository: finetune-app
+      tag: latest
+    volumeClaim: tenant-user-results-pvc
+    volumeName: tenant-user-results-pv
+    quota:
+      enabled: true
+      name: tenant-user-quota
+      hard:
+        pods: "3"
+        requests.cpu: "1"
+        requests.memory: "2Gi"
+
 redis:
   image:
     repository: redis
     tag: latest
   replicas: 1
+  hostPath: /mnt/data/finetune-results/redis
   service:
     type: ClusterIP
     port: 6379
@@ -63,8 +120,8 @@ redis:
 ui:
   image:
     repository: finetune-app
-    tag: v1.0.0
-  replicas: 2
+    tag: latest
+  replicas: 1
   service:
     type: NodePort
     port: 8501

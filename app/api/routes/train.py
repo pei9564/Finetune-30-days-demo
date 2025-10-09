@@ -4,11 +4,11 @@
 
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from app.auth.jwt_utils import get_current_user
-from app.tasks.training import train_lora as train_lora_task
+from app.tasks.training import create_training_job
 
 router = APIRouter(tags=["Training"])
 
@@ -32,7 +32,9 @@ class TrainingRequest(BaseModel):
 
 @router.post("/train")
 async def start_training(
-    request: TrainingRequest, user: Dict = Depends(get_current_user)
+    request: TrainingRequest,
+    http_request: Request,
+    user: Dict = Depends(get_current_user),
 ) -> Dict[str, str]:
     """提交訓練任務，添加錯誤處理
 
@@ -53,7 +55,7 @@ async def start_training(
         # 設置用戶 ID 並提交任務
         config_dict = request.config.model_dump()
         config_dict["user_id"] = user["user_id"]
-        task = train_lora_task.delay(config=config_dict)
+        task = create_training_job(config=config_dict, request=http_request)
 
         if not task or not hasattr(task, "id"):
             raise HTTPException(status_code=500, detail="任務提交失敗")

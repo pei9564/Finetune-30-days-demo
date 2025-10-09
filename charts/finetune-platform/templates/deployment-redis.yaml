@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "finetune-platform.fullname" . }}-redis
-  namespace: {{ .Values.namespace | default "lora-system" }}
+  namespace: {{ include "finetune-platform.controlNamespace" . }}
   labels:
     {{- include "finetune-platform.labels" . | nindent 4 }}
     app.kubernetes.io/component: redis
@@ -50,6 +50,7 @@ spec:
             failureThreshold: 3
       volumes:
         - name: redis-data
-          persistentVolumeClaim:
-            claimName: results-pvc
+          hostPath:
+            path: {{ .Values.redis.hostPath | default (printf "%s/redis" (.Values.storageHostPath | default "/mnt/data/finetune-results")) | quote }}
+            type: DirectoryOrCreate
       restartPolicy: Always

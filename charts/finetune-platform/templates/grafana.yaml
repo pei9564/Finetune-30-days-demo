@@ -3,7 +3,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ include "finetune-platform.fullname" . }}-grafana-config
-  namespace: {{ .Values.namespace | default "lora-system" }}
+  namespace: {{ include "finetune-platform.controlNamespace" . }}
   labels:
     {{- include "finetune-platform.labels" . | nindent 4 }}
     app.kubernetes.io/component: grafana
@@ -20,7 +20,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "finetune-platform.fullname" . }}-grafana
-  namespace: {{ .Values.namespace | default "lora-system" }}
+  namespace: {{ include "finetune-platform.controlNamespace" . }}
   labels:
     {{- include "finetune-platform.labels" . | nindent 4 }}
     app.kubernetes.io/component: grafana
@@ -71,7 +71,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "finetune-platform.fullname" . }}-grafana
-  namespace: {{ .Values.namespace | default "lora-system" }}
+  namespace: {{ include "finetune-platform.controlNamespace" . }}
   labels:
     {{- include "finetune-platform.labels" . | nindent 4 }}
     app.kubernetes.io/component: grafana

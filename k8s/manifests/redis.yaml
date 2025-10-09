@@ -7,7 +7,7 @@ metadata:
     app: redis
     component: cache
 spec:
-  replicas: {{ .Values.redis.replicas | default 1 }}
+  replicas: 1
   selector:
     matchLabels:
       app: redis
@@ -21,7 +21,7 @@ spec:
       - name: redis
         image: redis:latest
         ports:
-        - containerPort: {{ .Values.redis.service.port | default 6379 }}
+        - containerPort: 6379
           name: redis
           protocol: TCP
         resources:
@@ -68,10 +68,10 @@ metadata:
     app: redis
     component: cache
 spec:
-  type: {{ .Values.redis.service.type | default "ClusterIP" }}
+  type: ClusterIP
   ports:
-  - port: {{ .Values.redis.service.port | default 6379 }}
-    targetPort: {{ .Values.redis.service.port | default 6379 }}
+  - port: 6379
+    targetPort: 6379
     protocol: TCP
     name: redis
   selector:

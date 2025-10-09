@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "finetune-platform.fullname" . }}-ui
-  namespace: {{ .Values.namespace | default "lora-system" }}
+  namespace: {{ include "finetune-platform.controlNamespace" . }}
   labels:
     {{- include "finetune-platform.labels" . | nindent 4 }}
     app.kubernetes.io/component: ui
@@ -76,6 +76,7 @@ spec:
             failureThreshold: 3
       volumes:
         - name: results-storage
-          persistentVolumeClaim:
-            claimName: results-pvc
+          hostPath:
+            path: {{ .Values.storageHostPath | default "/mnt/data/finetune-results" | quote }}
+            type: DirectoryOrCreate
       restartPolicy: Always

@@ -1,0 +1,37 @@
+{{- if and .Values.storage .Values.storage.enabled }}
+{{- $pv := .Values.storage.pv -}}
+{{- if $pv }}
+{{- $existing := lookup "v1" "PersistentVolume" "" $pv.name -}}
+{{- $render := true -}}
+{{- if $existing }}
+  {{- $labels := default (dict) $existing.metadata.labels -}}
+  {{- $annotations := default (dict) $existing.metadata.annotations -}}
+  {{- if not (and (eq (index $labels "app.kubernetes.io/managed-by") .Release.Service)
+                  (eq (index $annotations "meta.helm.sh/release-name") .Release.Name)
+                  (eq (index $annotations "meta.helm.sh/release-namespace") .Release.Namespace)) }}
+    {{- $render = false -}}
+  {{- end }}
+{{- end }}
+{{- if $render }}
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ $pv.name }}
+  labels:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  capacity:
+    storage: {{ default "20Gi" $pv.capacity }}
+  accessModes:
+{{ toYaml (default (list "ReadWriteMany") $pv.accessModes) | indent 4 }}
+  persistentVolumeReclaimPolicy: {{ default "Retain" $pv.reclaimPolicy }}
+  storageClassName: {{ default "" $pv.storageClassName | quote }}
+  hostPath:
+    path: {{ default "/mnt/data/finetune-results" $pv.hostPath | quote }}
+{{- end }}
+{{- end }}
+{{- end }}

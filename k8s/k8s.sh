@@ -76,6 +76,8 @@ case "$1" in
         # 按順序部署，確保依賴關係正確
         echo "1️⃣ 創建 namespace..."
         kubectl apply -f k8s/manifests/namespace.yaml
+        echo "1️⃣.5 套用 ResourceQuota..."
+        kubectl apply -f k8s/manifests/resourcequota.yaml
         echo "2️⃣ 創建 configmap..."
         kubectl apply -f k8s/manifests/configmap.yaml
         echo "3️⃣ 創建 secrets..."

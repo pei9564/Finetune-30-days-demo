@@ -33,9 +33,11 @@ def create_token(user_id: str, role: str) -> str:
     Returns:
         str: JWT Token
     """
+    tenant = "tenant-admin" if role == "admin" else "tenant-user"
     payload = {
         "user_id": user_id,
         "role": role,
+        "tenant": tenant,
         "exp": int(time.time()) + TOKEN_EXPIRE_MINUTES * 60,
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
@@ -59,6 +61,11 @@ def decode_token(token: str) -> Dict:
             raise HTTPException(
                 status_code=HTTP_401_UNAUTHORIZED,
                 detail="Token 已過期",
+            )
+        if "tenant" not in payload:
+            tenant_role = payload.get("role", "user")
+            payload["tenant"] = (
+                "tenant-admin" if tenant_role == "admin" else "tenant-user"
             )
         return payload
     except jwt.InvalidTokenError:

@@ -64,7 +64,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(task_success_total)",
+          "expr": "sum(task_success_total{namespace=\"$namespace\"})",
           "legendFormat": "Success",
           "range": true,
           "refId": "A"
@@ -75,7 +75,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(task_success_total + task_failure_total)",
+          "expr": "sum(task_success_total{namespace=\"$namespace\"}) + sum(task_failure_total{namespace=\"$namespace\"})",
           "legendFormat": "Total",
           "range": true,
           "refId": "B"
@@ -135,7 +135,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "task_queue_length unless task_queue_length{pid!=''}",
+          "expr": "task_queue_length{namespace=\"$namespace\"} unless task_queue_length{namespace=\"$namespace\", pid!=''}",
           "legendFormat": "Queue Length",
           "range": true,
           "refId": "A"
@@ -183,7 +183,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(increase(task_duration_seconds_sum[10m])) / clamp_min(sum(increase(task_duration_seconds_count[10m])), 1)",
+          "expr": "sum(increase(task_duration_seconds_sum{namespace=\"$namespace\"}[10m])) / clamp_min(sum(increase(task_duration_seconds_count{namespace=\"$namespace\"}[10m])), 1)",
           "legendFormat": "Avg Duration",
           "range": true,
           "refId": "A"
@@ -257,7 +257,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "system_cpu_percent unless system_cpu_percent{pid!=''}",
+          "expr": "system_cpu_percent{namespace=\"$namespace\"} unless system_cpu_percent{namespace=\"$namespace\", pid!=''}",
           "legendFormat": "CPU Usage",
           "range": true,
           "refId": "A"
@@ -268,7 +268,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "system_memory_usage_gigabytes unless system_memory_usage_gigabytes{pid!=''}",
+          "expr": "system_memory_usage_gigabytes{namespace=\"$namespace\"} unless system_memory_usage_gigabytes{namespace=\"$namespace\", pid!=''}",
           "legendFormat": "Memory Usage",
           "range": true,
           "refId": "B"
@@ -285,7 +285,15 @@
     "finetune"
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "namespace",
+        "type": "query",
+        "label": "Namespace",
+        "query": "label_values(kube_pod_info, namespace)",
+        "refresh": 1
+      }
+    ]
   },
   "time": {
     "from": "now-6h",

@@ -1,21 +1,149 @@
+{{- $root := . -}}
+{{- $controlNamespace := include "finetune-platform.controlNamespace" $root -}}
+{{- $defaults := dict "namespace" $controlNamespace "image" .Values.worker.image "resources" .Values.worker.resources "service" .Values.worker.service "replicas" .Values.worker.replicas "volumeClaim" .Values.worker.volumeClaim -}}
+{{- $workerPools := .Values.workerPools | default (list) -}}
+{{- if gt (len $workerPools) 0 }}
+{{- $first := true -}}
+{{- range $pool := $workerPools }}
+{{- $namespace := default $controlNamespace $pool.namespace -}}
+{{- $replicas := default $defaults.replicas $pool.replicas -}}
+{{- $volumeClaim := default $defaults.volumeClaim $pool.volumeClaim -}}
+{{- $image := $defaults.image -}}
+{{- if $pool.image }}
+  {{- $image = merge (deepCopy $defaults.image) $pool.image -}}
+{{- end }}
+{{- $resources := $defaults.resources -}}
+{{- if $pool.resources }}
+  {{- $resources = merge (deepCopy $defaults.resources) $pool.resources -}}
+{{- end }}
+{{- $service := $defaults.service -}}
+{{- if $pool.service }}
+  {{- $service = merge (deepCopy $defaults.service) $pool.service -}}
+{{- end }}
+{{- if not $first }}
+---
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "finetune-platform.fullname" . }}-worker
-  namespace: {{ .Values.namespace | default "lora-system" }}
+  name: {{ include "finetune-platform.fullname" $root }}-worker-{{ $pool.name }}
+  namespace: {{ $namespace }}
   labels:
-    {{- include "finetune-platform.labels" . | nindent 4 }}
+    {{- include "finetune-platform.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: worker
+    tenant.finetune.ai/pool: {{ $pool.name | quote }}
+spec:
+  replicas: {{ $replicas }}
+  selector:
+    matchLabels:
+      {{- include "finetune-platform.selectorLabels" $root | nindent 6 }}
+      app.kubernetes.io/component: worker
+      tenant.finetune.ai/pool: {{ $pool.name | quote }}
+  template:
+    metadata:
+      labels:
+        {{- include "finetune-platform.selectorLabels" $root | nindent 8 }}
+        app.kubernetes.io/component: worker
+        tenant.finetune.ai/pool: {{ $pool.name | quote }}
+    spec:
+      containers:
+        - name: worker
+          image: "{{ $image.repository }}:{{ $image.tag }}"
+          imagePullPolicy: {{ $root.Values.global.imagePullPolicy }}
+          workingDir: /app
+          command: ["python", "-m", "celery", "-A", "app.tasks", "worker", "--loglevel=info", "-P", "solo"]
+          ports:
+            - containerPort: {{ $service.port }}
+              name: worker
+          env:
+            - name: CELERY_BROKER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: lora-config
+                  key: CELERY_BROKER_URL
+            - name: CELERY_RESULT_BACKEND
+              valueFrom:
+                configMapKeyRef:
+                  name: lora-config
+                  key: CELERY_RESULT_BACKEND
+            - name: TZ
+              valueFrom:
+                configMapKeyRef:
+                  name: lora-config
+                  key: TZ
+            - name: PYTHONPATH
+              valueFrom:
+                configMapKeyRef:
+                  name: lora-config
+                  key: PYTHONPATH
+            - name: PYTHONUNBUFFERED
+              valueFrom:
+                configMapKeyRef:
+                  name: lora-config
+                  key: PYTHONUNBUFFERED
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Values.secrets.name }}
+                  key: JWT_SECRET
+          resources:
+            {{- toYaml $resources | nindent 12 }}
+          volumeMounts:
+            - name: results-storage
+              mountPath: /app/results
+            - name: config-storage
+              mountPath: /app/config
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import celery; print('Celery worker is alive')"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import celery; print('Celery worker is ready')"
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: results-storage
+          hostPath:
+            path: {{ $root.Values.storageHostPath | default "/mnt/data/finetune-results" | quote }}
+            type: DirectoryOrCreate
+        - name: config-storage
+          hostPath:
+            path: {{ $root.Values.storageHostPath | default "/mnt/data/finetune-results" | quote }}
+            type: DirectoryOrCreate
+      restartPolicy: Always
+{{- $first = false -}}
+{{- end -}}
+{{- else }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "finetune-platform.fullname" $root }}-worker
+  namespace: {{ $controlNamespace }}
+  labels:
+    {{- include "finetune-platform.labels" $root | nindent 4 }}
     app.kubernetes.io/component: worker
 spec:
   replicas: {{ .Values.worker.replicas }}
   selector:
     matchLabels:
-      {{- include "finetune-platform.selectorLabels" . | nindent 6 }}
+      {{- include "finetune-platform.selectorLabels" $root | nindent 6 }}
       app.kubernetes.io/component: worker
   template:
     metadata:
       labels:
-        {{- include "finetune-platform.selectorLabels" . | nindent 8 }}
+        {{- include "finetune-platform.selectorLabels" $root | nindent 8 }}
         app.kubernetes.io/component: worker
     spec:
       containers:
@@ -87,9 +215,12 @@ spec:
             failureThreshold: 3
       volumes:
         - name: results-storage
-          persistentVolumeClaim:
-            claimName: results-pvc
+          hostPath:
+            path: {{ $root.Values.storageHostPath | default "/mnt/data/finetune-results" | quote }}
+            type: DirectoryOrCreate
         - name: config-storage
-          persistentVolumeClaim:
-            claimName: results-pvc
+          hostPath:
+            path: {{ $root.Values.storageHostPath | default "/mnt/data/finetune-results" | quote }}
+            type: DirectoryOrCreate
       restartPolicy: Always
+{{- end }}

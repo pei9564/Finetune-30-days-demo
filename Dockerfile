@@ -1,5 +1,5 @@
 # 構建階段：用於安裝依賴和編譯
-FROM python:3.11-slim as builder
+FROM python:3.11-slim AS builder
 
 # 設置工作目錄
 WORKDIR /app
@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir --timeout 100 --retries 3 \
     -r requirements.txt
 
 # 運行階段：最小化運行環境
-FROM python:3.11-slim as runtime
+FROM python:3.11-slim AS minimal
 
 # 設置工作目錄
 WORKDIR /app

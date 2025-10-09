@@ -1,0 +1,38 @@
+{{- $root := . -}}
+{{- $controlNs := include "finetune-platform.controlNamespace" $root -}}
+{{- $nsMap := dict -}}
+{{- range $pool := .Values.workerPools }}
+  {{- $ns := $pool.namespace -}}
+  {{- if and $ns (default true $pool.createNamespace) (ne $ns $controlNs) }}
+    {{- $_ := set $nsMap $ns true -}}
+  {{- end }}
+{{- end }}
+{{- $namespaces := sortAlpha (keys $nsMap) -}}
+{{- $first := true -}}
+{{- range $ns := $namespaces }}
+{{- $existing := lookup "v1" "Namespace" "" $ns -}}
+{{- $render := dict "value" true -}}
+{{- if $existing }}
+  {{- $labels := default (dict) $existing.metadata.labels -}}
+  {{- $annotations := default (dict) $existing.metadata.annotations -}}
+  {{- $managedBy := index $labels "app.kubernetes.io/managed-by" -}}
+  {{- $releaseName := index $annotations "meta.helm.sh/release-name" -}}
+  {{- $releaseNs := index $annotations "meta.helm.sh/release-namespace" -}}
+  {{- if not (and (eq $managedBy "Helm") (eq $releaseName $root.Release.Name) (eq $releaseNs $root.Release.Namespace)) }}
+    {{- $_ := set $render "value" false -}}
+  {{- end }}
+{{- end }}
+{{- if not $render.value }}
+{{- continue -}}
+{{- end }}
+{{- if not $first }}
+---
+{{- end }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $ns }}
+  labels:
+    tenant.finetune.ai/enabled: "true"
+{{- $first = false -}}
+{{- end }}

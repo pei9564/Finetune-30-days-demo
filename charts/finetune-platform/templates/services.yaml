@@ -1,11 +1,41 @@
 {{- $root := . -}}
-{{- $services := list (dict "name" "api" "cfg" .Values.api) (dict "name" "worker" "cfg" .Values.worker) (dict "name" "redis" "cfg" .Values.redis) (dict "name" "ui" "cfg" .Values.ui) -}}
-{{- range $idx, $service := $services }}
+{{- $controlNamespace := include "finetune-platform.controlNamespace" $root -}}
+{{- $controlServices := list (dict "name" "api" "cfg" .Values.api) (dict "name" "redis" "cfg" .Values.redis) (dict "name" "ui" "cfg" .Values.ui) -}}
+{{- $first := true -}}
+{{- range $service := $controlServices }}
 {{- $cfg := $service.cfg -}}
 {{- if $cfg }}
-{{- if gt $idx 0 }}
+{{- if not $first }}
 ---
 {{- end }}
-{{ include "finetune-platform.service" (dict "context" $root "name" $service.name "cfg" $cfg) }}
+{{ include "finetune-platform.service" (dict "context" $root "name" $service.name "cfg" $cfg "namespace" $controlNamespace) }}
+{{- $first = false -}}
+{{- end }}
+{{- end -}}
+
+{{- $workerServiceCfg := .Values.worker -}}
+{{- $workerPools := .Values.workerPools | default (list) -}}
+{{- if $workerServiceCfg }}
+{{- if gt (len $workerPools) 0 }}
+{{- $defaults := dict "service" $workerServiceCfg.service -}}
+{{- range $pool := $workerPools }}
+{{- $service := $defaults.service -}}
+{{- if $pool.service }}
+  {{- $service = merge (deepCopy $defaults.service) $pool.service -}}
+{{- end }}
+{{- $cfg := dict "service" $service -}}
+{{- if not $first }}
+---
+{{- end }}
+{{ include "finetune-platform.service" (dict "context" $root "name" (printf "worker-%s" $pool.name) "cfg" $cfg "namespace" $pool.namespace) }}
+{{- $first = false -}}
+{{- end -}}
+{{- else }}
+{{- if $workerServiceCfg }}
+{{- if not $first }}
+---
+{{- end }}
+{{ include "finetune-platform.service" (dict "context" $root "name" "worker" "cfg" $workerServiceCfg "namespace" $controlNamespace) }}
+{{- end }}
 {{- end }}
 {{- end -}}
