@@ -1,60 +1,26 @@
-.PHONY: setup-conda run-local logs-local analyze-metrics analyze-by-model analyze-by-dataset \
-        test test-v test-integration deps \
-        data-analyze data-validate data-versions db-list \
+.PHONY: setup-conda run-local logs-local \
+        data-analyze data-validate data-versions \
+        analyze-metrics analyze-by-model analyze-by-dataset \
+        lint lint-conda test test-v test-conda deps \
         start-services stop-services restart-services logs-services logs-service \
-        k8s-setup k8s-build k8s-build-fast k8s-deploy k8s-verify k8s-cleanup \
-        k8s-status k8s-logs k8s-restart k8s-scale k8s-quick-deploy k8s-full-cleanup \
-        help check-docker serve predict-health predict-text predict-positive predict-negative load-test
-.PHONY: lint lint-conda test-conda docker-build docker-push helm-dryrun helm-deploy helm-uninstall
+        docker-build docker-push \
+        helm-dryrun helm-deploy helm-uninstall \
+        k8s-setup k8s-build k8s-build-fast k8s-deploy k8s-quick-deploy \
+        k8s-status k8s-logs k8s-restart k8s-scale k8s-verify k8s-cleanup k8s-full-cleanup \
+        serve predict-health predict-text predict-positive predict-negative load-test \
+        help
+
+# ==============================================================================
+# 🔧 環境設定與共用變數
+# ==============================================================================
 
 ifneq (,$(wildcard .env))
 include .env
 export $(shell sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)[[:space:]]*=.*/\1/p' .env)
 endif
 
-
-# ==============================================================================
-# 通用變量和函數
-# ==============================================================================
-
 PYTHON_VERSION := 3.11
 PYTHONPATH := $(PWD)
-
-# 定義檢測環境的函數
-define detect_env
-	if command -v nvidia-smi &> /dev/null; then \
-		echo "🚀 檢測到 NVIDIA GPU 環境"; \
-		ENV_NAME="lora-gpu"; \
-	elif uname -m | grep -q "arm64"; then \
-		echo "🍎 檢測到 Apple Silicon (ARM64) 環境"; \
-		ENV_NAME="lora-m3"; \
-	else \
-		echo "💻 檢測到 x86_64 CPU 環境"; \
-		ENV_NAME="lora-cpu"; \
-	fi; \
-	echo "📦 使用環境名稱: $$ENV_NAME";
-endef
-
-# 定義檢查 Conda 環境的函數
-define check_conda
-	@if ! command -v conda &> /dev/null; then \
-		echo "❌ Conda 未安裝，請先安裝 miniforge：brew install --cask miniforge"; \
-		exit 1; \
-	fi
-endef
-
-# 定義檢查環境存在的函數
-define check_env_exists
-	if ! conda env list | grep -q "$$ENV_NAME"; then \
-		echo "❌ Conda 環境 \"$$ENV_NAME\" 不存在，請先運行 \"make setup-conda\""; \
-		exit 1; \
-	fi;
-endef
-
-# ==============================================================================
-# CI/CD 指令
-# ==============================================================================
-
 IMAGE ?= finetune-app:latest
 
 HELM_RELEASE ?= finetune-platform
@@ -64,569 +30,260 @@ HELM_VALUES ?= $(HELM_CHART)/values.yaml
 HELM_PROD_VALUES ?= $(HELM_CHART)/values.prod.yaml
 HELM_COMMON_FLAGS := -f $(HELM_VALUES) -f $(HELM_PROD_VALUES) --namespace $(HELM_NAMESPACE) --create-namespace
 
-lint:
-	@if [ -n "$$CI" ]; then \
-		echo "🧹 在 CI 環境執行 flake8..."; \
-		flake8; \
+# 共用函數
+define detect_env
+	if command -v nvidia-smi &> /dev/null; then \
+		ENV_NAME="lora-gpu"; \
+	elif uname -m | grep -q "arm64"; then \
+		ENV_NAME="lora-m3"; \
 	else \
-		$(MAKE) --no-print-directory lint-conda; \
-	fi
+		ENV_NAME="lora-cpu"; \
+	fi; \
+	echo "📦 Environment: $$ENV_NAME";
+endef
 
-lint-conda:
-	@echo "🧹 執行 flake8..."
-	@bash -c '\
-		$(detect_env) \
-		$(check_env_exists) \
-		source $$(conda info --base)/etc/profile.d/conda.sh && \
-		conda activate $$ENV_NAME && \
-		cd $(PWD) && flake8'
-
-
-# `make test` 在 CI 中走 pytest，在本地保留舊的 Conda 流程
-test:
-	@if [ -n "$$CI" ]; then \
-		echo "🧪 在 CI 環境執行 pytest..."; \
-		pytest; \
-	else \
-		$(MAKE) --no-print-directory test-conda; \
-	fi
-
-
-
-docker-build:
-	@echo "🐳 建構 Docker 映像 $(IMAGE)"
-	@docker build -t $(IMAGE) .
-
-docker-push:
-	@echo "🚀 推送 Docker 映像 $(IMAGE)"
-	@docker push $(IMAGE)
-
-helm-dryrun:
-	@echo "🧪 Helm dry-run：$(HELM_RELEASE) -> $(HELM_NAMESPACE)"
-	@if command -v kubectl >/dev/null 2>&1 && kubectl config current-context >/dev/null 2>&1; then \
-		helm upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_COMMON_FLAGS) --dry-run --debug; \
-	else \
-		echo "ℹ️ 未偵測到可用的 Kubernetes cluster，改用 helm template 驗證 chart"; \
-		helm template $(HELM_RELEASE) $(HELM_CHART) $(HELM_COMMON_FLAGS) --debug >/dev/null; \
-	fi
-
-helm-deploy:
-	@echo "🚀 Helm 部署：$(HELM_RELEASE) -> $(HELM_NAMESPACE)"
-	@if ! command -v helm >/dev/null 2>&1; then \
-		echo "❌ 找不到 helm 指令，請先安裝 Helm (https://helm.sh)"; \
+define check_conda
+	@if ! command -v conda &> /dev/null; then \
+		echo "❌ Conda 未安裝。請先執行：brew install --cask miniforge"; \
 		exit 1; \
 	fi
-	@if ! command -v kubectl >/dev/null 2>&1; then \
-		echo "❌ 找不到 kubectl 指令，無法連線至 Kubernetes 叢集"; \
+endef
+
+define check_env_exists
+	if ! conda env list | grep -q "$$ENV_NAME"; then \
+		echo "❌ Conda 環境不存在，請先執行 make setup-conda"; \
 		exit 1; \
-	fi
-	@if ! kubectl config current-context >/dev/null 2>&1; then \
-		echo "❌ 尚未設定可用的 Kubernetes context，請先執行 kubectl config use-context <context>"; \
-		exit 1; \
-	fi
-	@echo "📋 執行指令: helm upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_COMMON_FLAGS)"
-	@helm upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_COMMON_FLAGS)
-
-helm-uninstall:
-	@echo "🧹 移除 Helm 部署：$(HELM_RELEASE)"
-	@helm uninstall $(HELM_RELEASE) --namespace $(HELM_NAMESPACE)
-
+	fi;
+endef
 
 # ==============================================================================
-# 測試相關命令
+# 🧱 Conda 環境與本地訓練
 # ==============================================================================
 
-# 運行所有測試
-test-conda:
-	@echo "🧪 運行所有測試..."
-	@bash -c '\
-		$(detect_env) \
-		$(check_env_exists) \
-		source $$(conda info --base)/etc/profile.d/conda.sh && \
-		conda activate $$ENV_NAME && \
-		cd $(PWD) && PYTHONPATH=$(PWD) python -m pytest tests/ -v'
-
-# 運行所有測試（詳細模式）
-test-v:
-	@echo "🧪 運行所有測試（詳細模式）..."
-	@bash -c '\
-		$(detect_env) \
-		$(check_env_exists) \
-		source $$(conda info --base)/etc/profile.d/conda.sh && \
-		conda activate $$ENV_NAME && \
-		cd $(PWD) && PYTHONPATH=$(PWD) python -m pytest tests/ -v -s'
-
-# 生成依賴圖
-deps:
-	@echo "📊 生成依賴圖..."
-	@mkdir -p docs
-	@if ! command -v dot &> /dev/null; then \
-		echo "❌ 找不到 graphviz，請先安裝："; \
-		if [[ "$$(uname)" == "Darwin" ]]; then \
-			echo "🍎 macOS 安裝指令："; \
-			echo "  brew install graphviz"; \
-		elif [[ "$$(uname)" == "Linux" ]]; then \
-			echo "🐧 Linux 安裝指令："; \
-			echo "  sudo apt-get install graphviz"; \
-		else \
-			echo "❓ 其他系統："; \
-			echo "  請參考 graphviz 官方文件安裝指引"; \
-		fi; \
-		echo ""; \
-		echo "💡 安裝完成後重新執行 make deps"; \
-		exit 1; \
-	fi
-	@bash -c '\
-		$(detect_env) \
-		$(check_env_exists) \
-		source $$(conda info --base)/etc/profile.d/conda.sh && \
-		conda activate $$ENV_NAME && \
-		cd $(PWD) && pydeps app \
-			--only app \
-			--cluster \
-			--min-cluster-size=2 \
-			--max-cluster-size=10 \
-			--keep-target-cluster \
-			--rankdir=LR \
-			--max-bacon=10 \
-			--start-color=0 \
-			-xx numpy,torch,transformers,datasets,evaluate,fastapi,celery,peft,psutil,yaml,pandas \
-			--rmprefix app. \
-			-T svg -o docs/deps.svg'
-	@echo "✅ 依賴圖已輸出到 docs/deps.svg"
-
-# ==============================================================================
-# 本地訓練相關命令
-# ==============================================================================
-
-# 本地 Conda 環境設置
 setup-conda:
-	@echo "🔍 檢測系統環境..."
+	@echo "🔍 檢查 Conda 環境..."
 	$(check_conda)
 	@bash -c '\
 		$(detect_env) \
 		if conda env list | grep -q "$$ENV_NAME"; then \
-			echo "✅ Conda 環境 \"$$ENV_NAME\" 已存在"; \
+			echo "✅ 環境 $$ENV_NAME 已存在"; \
 		else \
-			echo "📦 創建新的 Conda 環境 \"$$ENV_NAME\"..."; \
+			echo "📦 建立環境 $$ENV_NAME..."; \
 			conda create --name $$ENV_NAME python=$(PYTHON_VERSION) -y; \
-			echo "✅ 環境創建完成！"; \
 		fi; \
-		echo "📦 安裝依賴..."; \
-		source $$(conda info --base)/etc/profile.d/conda.sh && \
-		conda activate $$ENV_NAME && \
+		source $$(conda info --base)/etc/profile.d/conda.sh && conda activate $$ENV_NAME && \
 		pip install --upgrade pip && pip install -r requirements.txt; \
-		echo "✅ 依賴安裝完成！"; \
-		echo "📋 下一步："; \
-		echo "  - make run-local  # 執行訓練"; \
-		echo "  - make test-v     # 運行測試" \
+		echo "✅ 完成！" \
 	'
 
-# 本地運行訓練
 run-local:
-	@echo "🚀 檢查並運行 LoRA 訓練（使用預設配置）..."
+	@echo "🚀 啟動本地 LoRA 訓練..."
 	$(check_conda)
 	@bash -c '\
 		$(detect_env) \
 		$(check_env_exists) \
-		echo "🚀 使用環境 \"$$ENV_NAME\" 開始訓練..."; \
-		source $$(conda info --base)/etc/profile.d/conda.sh && \
-		conda activate $$ENV_NAME && \
-		cd $(PWD) && PYTHONPATH=$(PWD) python -u app/train_lora_v2.py $(ARGS) \
-	'
+		source $$(conda info --base)/etc/profile.d/conda.sh && conda activate $$ENV_NAME && \
+		PYTHONPATH=$(PWD) python -u app/train_lora_v2.py $(ARGS)'
 
-# 查看最新實驗的訓練日誌
 logs-local:
 	@latest_dir=$$(ls -td results/*/ 2>/dev/null | head -n1); \
-	if [ -n "$$latest_dir" ] && [ -f "$$latest_dir/logs.txt" ]; then \
-		echo "📋 查看最新實驗日誌（最後 20 行）..."; \
-		echo "📂 實驗目錄：$$latest_dir"; \
+	if [ -f "$$latest_dir/logs.txt" ]; then \
+		echo "📋 最新實驗日誌（20 行）:"; \
 		tail -n 20 "$$latest_dir/logs.txt"; \
-		echo ""; \
-		echo "💡 提示："; \
-		echo "  - 使用 'tail -f $$latest_dir/logs.txt' 來持續監控日誌"; \
-		echo "  - 系統日誌與訓練進度都記錄在此文件中"; \
 	else \
-		echo "❌ 沒有找到實驗日誌，請先運行 'make run-local'"; \
+		echo "❌ 未找到實驗日誌，請先執行 make run-local"; \
 	fi
 
 # ==============================================================================
-# 實驗分析相關命令
+# 📦 資料與分析工具
 # ==============================================================================
 
-# 分析實驗效能
+data-analyze:
+	@$(call run_data_tool,"分析資料","analysis")
+
+data-validate:
+	@$(call run_data_tool,"驗證資料","validation")
+
+data-versions:
+	@$(call run_data_tool,"管理版本","versioning")
+
 analyze-metrics:
 	@echo "📊 分析實驗效能..."
-	@bash -c '\
-		$(detect_env) \
-		$(check_env_exists) \
-		source $$(conda info --base)/etc/profile.d/conda.sh && \
-		conda activate $$ENV_NAME && \
-		cd $(PWD) && PYTHONPATH=$(PWD) python -m app.tools.analyze_metrics $(ARGS) \
-	'
+	@bash -c '$(detect_env); $(check_env_exists); \
+		source $$(conda info --base)/etc/profile.d/conda.sh && conda activate $$ENV_NAME && \
+		PYTHONPATH=$(PWD) python -m app.tools.analyze_metrics $(ARGS)'
 
-# 按模型分析效能
 analyze-by-model:
-	@echo "📊 按模型分析效能..."
-	@bash -c '\
-		$(detect_env) \
-		$(check_env_exists) \
-		source $$(conda info --base)/etc/profile.d/conda.sh && \
-		conda activate $$ENV_NAME && \
-		cd $(PWD) && PYTHONPATH=$(PWD) python -m app.tools.analyze_metrics --group-by model_name \
-	'
+	@$(MAKE) analyze-metrics ARGS="--group-by model_name"
 
-# 按資料集分析效能
 analyze-by-dataset:
-	@echo "📊 按資料集分析效能..."
-	@bash -c '\
-		$(detect_env) \
-		$(check_env_exists) \
-		source $$(conda info --base)/etc/profile.d/conda.sh && \
-		conda activate $$ENV_NAME && \
-		cd $(PWD) && PYTHONPATH=$(PWD) python -m app.tools.analyze_metrics --group-by dataset_name \
-	'
+	@$(MAKE) analyze-metrics ARGS="--group-by dataset_name"
 
 # ==============================================================================
-# 資料管理相關命令
+# 🧪 測試與 Lint
 # ==============================================================================
 
-# 資料管理工具（僅用於測試範例）
-define run_data_tool
-	$(check_conda)
-	@bash -c '\
-		$(detect_env) \
-		$(check_env_exists) \
-		echo "🔧 使用環境 \"$$ENV_NAME\" $(1)..."; \
-		source $$(conda info --base)/etc/profile.d/conda.sh && \
-		conda activate $$ENV_NAME && \
-		cd $(PWD) && PYTHONPATH=$(PWD) PYTHONWARNINGS="ignore::RuntimeWarning" python -m app.data.$(2) \
-	'
-endef
+lint:
+	@if [ -n "$$CI" ]; then echo "🧹 Linting (CI)"; flake8; else $(MAKE) lint-conda; fi
 
-# 分析資料集分布
-data-analyze:
-	@echo "📊 分析資料集分布..."
-	$(call run_data_tool,"分析資料","analysis")
+lint-conda:
+	@bash -c '$(detect_env); $(check_env_exists); \
+		source $$(conda info --base)/etc/profile.d/conda.sh && conda activate $$ENV_NAME && flake8'
 
-# 驗證資料集品質
-data-validate:
-	@echo "🔍 驗證資料集品質..."
-	$(call run_data_tool,"驗證資料","validation")
+test:
+	@if [ -n "$$CI" ]; then pytest; else $(MAKE) test-conda; fi
 
-# 管理資料版本
-data-versions:
-	@echo "📦 管理資料版本..."
-	$(call run_data_tool,"管理版本","versioning")
+test-conda:
+	@bash -c '$(detect_env); $(check_env_exists); \
+		source $$(conda info --base)/etc/profile.d/conda.sh && conda activate $$ENV_NAME && pytest tests/ -v'
 
-# 查看實驗記錄
-db-list:
-	@echo "📊 查看實驗記錄..."
-	@if [ ! -f "results/experiments.db" ]; then \
-		echo "❌ 資料庫不存在，請先執行訓練"; \
-		exit 1; \
-	fi
-	@sqlite3 results/experiments.db ".mode column" ".headers on" \
-		"SELECT name as '實驗名稱', \
-		datetime(created_at) as '創建時間', \
-		printf('%.2f%%', eval_accuracy * 100) as '準確率', \
-		printf('%.1fs', train_runtime) as '訓練時間' \
-		FROM experiments ORDER BY created_at DESC;"
+test-v:
+	@$(MAKE) test-conda ARGS="-v -s"
+
+deps:
+	@echo "📊 生成依賴圖 (docs/deps.svg)..."
+	@bash -c '$(detect_env); $(check_env_exists); \
+		source $$(conda info --base)/etc/profile.d/conda.sh && conda activate $$ENV_NAME && \
+		pydeps app --only app --rmprefix app. -T svg -o docs/deps.svg'
 
 # ==============================================================================
-# Docker 服務相關命令
+# 🐳 Docker 本地服務
 # ==============================================================================
 
-# 檢查 Docker 環境
-check-docker:
-	@if ! command -v docker-compose &> /dev/null; then \
-		echo "❌ docker-compose 未安裝"; \
-		exit 1; \
-	fi
-
-# 啟動所有服務
-start-services: check-docker
-	@echo "🚀 啟動所有服務..."
+start-services:
+	@echo "🚀 啟動 Docker 服務..."
 	docker compose up --build -d
-	@echo "✅ 服務已啟動！"
-	@echo "💡 提示："
-	@echo "  - API 服務：http://localhost:8000"
-	@echo "    ↪ Swagger UI：http://localhost:8000/docs"
-	@echo "  - UI 界面：http://localhost:8501"
-	@echo "  - MLflow Tracking UI：http://localhost:5001"
-	@echo "  - Prometheus：http://localhost:9090"
-	@echo "  - Grafana：http://localhost:3000 (預設 admin/admin)"
-	@echo "  - Redis：localhost:6379"
-	@echo "  - 使用 'make logs-services' 查看服務日誌"
+	@echo "✅ API: http://localhost:8000 | Grafana:3000 | MLflow:5001"
 
-# 停止所有服務
-stop-services: check-docker
-	@echo "🛑 停止所有服務..."
-	docker compose down
-	@echo "✅ 服務已停止"
+stop-services: 
+	@docker compose down && echo "🛑 所有服務已停止"
 
-# 重啟所有服務
 restart-services: stop-services start-services
-
-# 查看所有服務日誌
-logs-services: check-docker
-	@echo "📋 查看服務日誌..."
-	@echo "提示：按 Ctrl+C 停止查看"
-	@echo "---"
-	docker compose logs -f worker api ui
-
-# 查看指定服務日誌
-logs-service: check-docker
-	@if [ -z "$(service)" ]; then \
-		echo "❌ 請指定服務名稱：make logs-service service=<redis|worker|api|ui>"; \
-		exit 1; \
-	fi
-	@echo "📋 查看 $(service) 服務日誌..."
-	@echo "提示：按 Ctrl+C 停止查看"
-	@echo "---"
-	docker compose logs -f $(service)
+logs-services: 
+	@docker compose logs -f api worker ui
+logs-service:
+	@docker compose logs -f $(service)
 
 # ==============================================================================
-# Kubernetes 部署相關命令
+# ☸️ Kubernetes 操作
 # ==============================================================================
 
-# 安裝並啟動 minikube
 k8s-setup:
-	@echo "☸️  設置 minikube 環境..."
-	@if ! command -v minikube &> /dev/null; then \
-		echo "📦 安裝 minikube..."; \
-		if [[ "$$(uname -m)" == "arm64" ]]; then \
-			curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-darwin-arm64; \
-			sudo install minikube-darwin-arm64 /usr/local/bin/minikube; \
-		else \
-			curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-darwin-amd64; \
-			sudo install minikube-darwin-amd64 /usr/local/bin/minikube; \
-		fi; \
-		rm -f minikube-darwin-*; \
-	fi
-	@echo "🚀 啟動 minikube..."
+	@echo "☸️ 啟動 Minikube..."
 	@minikube start --driver=docker --memory=4096 --cpus=2
-	@echo "✅ minikube 已啟動！"
-	@echo "💡 提示：使用 'minikube dashboard' 開啟 Kubernetes 儀表板"
 
-# 建構 Docker 映像
-k8s-build:
+k8s-build: 
 	@./k8s/k8s.sh build
-
-# 快速建構（輕量版）
-k8s-build-fast:
+k8s-build-fast: 
 	@./k8s/k8s.sh build-fast
-
-# 部署到 Kubernetes
-k8s-deploy:
+k8s-deploy: 
 	@./k8s/k8s.sh deploy
-
-# 一鍵部署
 k8s-quick-deploy: k8s-setup k8s-build-fast k8s-deploy
-	@echo "🎉 一鍵部署完成！"
-
-# 查看部署狀態
-k8s-status:
+k8s-status: 
 	@./k8s/k8s.sh status
-
-# 查看服務日誌
-k8s-logs:
+k8s-logs: 
 	@./k8s/k8s.sh logs $(service)
-
-# 重啟服務
-k8s-restart:
+k8s-restart: 
 	@./k8s/k8s.sh restart
-
-# 擴展服務
-k8s-scale:
+k8s-scale: 
 	@./k8s/k8s.sh scale $(replicas)
-
-# 驗證部署
-k8s-verify:
-	@./k8s/k8s.sh verify
-
-# 清理資源
-k8s-cleanup:
+k8s-cleanup: 
 	@./k8s/k8s.sh cleanup
-
-# 完全清理
-k8s-full-cleanup:
+k8s-full-cleanup: 
 	@./k8s/k8s.sh full-cleanup
 
-# 壓力測試
-load-test:
-	@echo "🐝 執行負載測試..."
-	@bash -c '\
-		$(detect_env) \
-		$(check_env_exists) \
-		source $$(conda info --base)/etc/profile.d/conda.sh && \
-		conda activate $$ENV_NAME && \
-		cd $(PWD) && locust -f tests/load_test.py --headless -u 5 -r 5'
-
 # ==============================================================================
-# 推理服務相關命令
+# 🚀 CI/CD & 部署
 # ==============================================================================
 
-# 尋找最新的實驗
-define find_latest_experiment
-	@latest_exp=$$(ls -td results/*/ 2>/dev/null | head -n1 | xargs basename); \
-	if [ -z "$$latest_exp" ]; then \
-		echo "❌ 找不到訓練好的模型！請先執行訓練。"; \
-		exit 1; \
-	fi; \
-	if [ ! -d "results/$$latest_exp/artifacts/final_model" ]; then \
-		echo "❌ 最新實驗 $$latest_exp 中找不到模型！"; \
-		exit 1; \
-	fi; \
-	echo "✅ 找到最新實驗：$$latest_exp"
-endef
+docker-build:
+	@echo "🐳 Build Docker image: $(IMAGE)"
+	docker build -t $(IMAGE) .
 
-# 啟動推理服務
+docker-push:
+	@echo "🚀 Push Docker image: $(IMAGE)"
+	docker push $(IMAGE)
+
+helm-dryrun:
+	@helm upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_COMMON_FLAGS) --dry-run --debug
+
+helm-deploy:
+	@helm upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_COMMON_FLAGS)
+
+helm-uninstall:
+	@helm uninstall $(HELM_RELEASE) --namespace $(HELM_NAMESPACE)
+
+# ==============================================================================
+# 🤖 推論與測試
+# ==============================================================================
+
 serve:
-	@echo "🚀 啟動推理服務..."
-	@if [ -n "$(exp)" ]; then \
-		if [ ! -d "results/$(exp)/artifacts/final_model" ]; then \
-			echo "❌ 找不到實驗模型：results/$(exp)/artifacts/final_model"; \
-			exit 1; \
-		fi; \
-		echo "📌 使用實驗：$(exp)"; \
-		MODEL_PATH="results/$(exp)/artifacts/final_model" bash -c '\
-			$(detect_env) \
-			$(check_env_exists) \
-			source $$(conda info --base)/etc/profile.d/conda.sh && \
-			conda activate $$ENV_NAME && \
-			cd $(PWD) && PYTHONPATH=$(PWD) python app/tasks/inference.py \
-		'; \
-	else \
-		$(find_latest_experiment); \
-		echo "📌 使用最新實驗：$$latest_exp"; \
-		MODEL_PATH="results/$$latest_exp/artifacts/final_model" bash -c '\
-			$(detect_env) \
-			$(check_env_exists) \
-			source $$(conda info --base)/etc/profile.d/conda.sh && \
-			conda activate $$ENV_NAME && \
-			cd $(PWD) && PYTHONPATH=$(PWD) python app/tasks/inference.py \
-		'; \
-	fi
+	@echo "🚀 啟動推論服務..."
+	@bash -c '$(detect_env); $(check_env_exists); \
+		source $$(conda info --base)/etc/profile.d/conda.sh && conda activate $$ENV_NAME && \
+		PYTHONPATH=$(PWD) python app/tasks/inference.py'
 
-
-# 預測服務測試指令
 predict-health:
-	@echo "🔍 檢查服務狀態..."
 	@curl -s http://localhost:8002/health | python3 -m json.tool
-
 predict-text:
-	@echo "🔍 測試文本預測..."
-	@if [ -z "$(text)" ]; then \
-		echo "❌ 請提供測試文本：make predict-text text='This movie was great!'"; \
-		exit 1; \
-	fi
-	@curl -s -X POST http://localhost:8002/predict \
-		-H "Content-Type: application/json" \
-		-d '{"text": "$(text)"}' | python3 -m json.tool
-
+	@curl -s -X POST http://localhost:8002/predict -H "Content-Type: application/json" -d '{"text": "$(text)"}' | python3 -m json.tool
 predict-positive:
-	@echo "🔍 測試正面評論範例..."
-	@curl -s -X POST http://localhost:8002/predict \
-		-H "Content-Type: application/json" \
-		-d '{"text": "This movie was fantastic! I really enjoyed it."}' | python3 -m json.tool
-
+	@$(MAKE) predict-text text="This movie was fantastic!"
 predict-negative:
-	@echo "🔍 測試負面評論範例..."
-	@curl -s -X POST http://localhost:8002/predict \
-		-H "Content-Type: application/json" \
-		-d '{"text": "This was a terrible movie. Complete waste of time."}' | python3 -m json.tool
+	@$(MAKE) predict-text text="This movie was terrible."
+
+load-test:
+	@echo "🐝 Running Locust load test..."
+	@bash -c '$(detect_env); $(check_env_exists); \
+		source $$(conda info --base)/etc/profile.d/conda.sh && conda activate $$ENV_NAME && \
+		locust -f tests/load_test.py --headless -u 5 -r 5'
 
 # ==============================================================================
-# 幫助信息
+# 🧭 使用說明
 # ==============================================================================
 
 help:
-	@echo "🍎 LoRA 訓練環境管理命令"
 	@echo ""
-	@echo "🚀 推理服務："
-	@echo "  1. 服務管理："
-	@echo "     make serve - 使用最新實驗啟動服務"
-	@echo "     make serve exp=實驗名稱 - 使用指定實驗啟動"
-	@echo "     例如：make serve exp=default_experiment_20250911_233842"
+	@echo "📘 Finetune Platform Makefile — 常用指令一覽"
 	@echo ""
-	@echo "  2. 預測測試："
-	@echo "     make predict-health   - 檢查服務狀態"
-	@echo "     make predict-text     - 測試自訂文本，例如："
-	@echo "     make predict-text text='This movie was great!'"
-	@echo "     make predict-positive - 測試正面評論範例"
-	@echo "     make predict-negative - 測試負面評論範例"
+	@echo "🧱 基礎環境"
+	@echo "  make setup-conda        建立 Conda 環境並安裝依賴"
 	@echo ""
-	@echo "🧪 測試命令："
-	@echo "  make lint          - 運行 flake8（CI/簡易環境）"
-	@echo "  make lint-conda    - 使用 Conda 環境運行 flake8"
-	@echo "  make test          - 運行 pytest（CI/簡易環境）"
-	@echo "  make test-conda    - 使用 Conda 環境運行所有測試"
-	@echo "  make test-v        - 運行所有測試（詳細模式）"
+	@echo "🚀 訓練與日誌"
+	@echo "  make run-local          啟動 LoRA 訓練"
+	@echo "  make logs-local         查看最新訓練日誌"
 	@echo ""
-	@echo "🚀 訓練模式："
-	@echo "  1. 本地直接訓練："
-	@echo "     make setup-conda   - 首次使用：檢查並創建 Conda 環境"
-	@echo "     make run-local     - 執行訓練（使用預設配置）"
-	@echo "     make logs-local    - 查看最新實驗的訓練進度"
+	@echo "🧪 測試與 Lint"
+	@echo "  make lint               代碼檢查"
+	@echo "  make test               單元測試 (pytest)"
+	@echo "  make deps               生成依賴圖 (docs/deps.svg)"
 	@echo ""
-	@echo "  2. 非同步訓練服務（Docker）："
-	@echo "     make start-services  - 啟動所有服務"
-	@echo "     make stop-services   - 停止所有服務"
-	@echo "     make restart-services - 重啟所有服務"
-	@echo "     make logs-services   - 查看所有服務日誌"
-	@echo "     make logs-service service=<redis|worker|api|ui> - 查看指定服務日誌"
+	@echo "🐳 Docker"
+	@echo "  make start-services     啟動 API / Worker / Grafana"
+	@echo "  make stop-services      停止所有容器"
 	@echo ""
-	@echo "📊 實驗管理："
-	@echo "  1. 網頁界面（推薦）："
-	@echo "     - 訪問 http://localhost:8501"
-	@echo "     - 提交任務：選擇「提交任務」頁籤，設置參數"
-	@echo "     - 追蹤進度：選擇「追蹤進度」頁籤，輸入 task_id"
-	@echo "     - 實驗記錄：選擇「實驗記錄」頁籤，查看所有實驗"
+	@echo "☸️  Kubernetes"
+	@echo "  make k8s-quick-deploy   一鍵建構 + 部署"
+	@echo "  make k8s-status         檢查叢集狀態"
 	@echo ""
-	@echo "  2. 命令列工具："
-	@echo "     make db-list       - 查看實驗記錄（表格形式）"
-	@echo "     make logs-local    - 查看最新實驗的訓練進度"
-	@echo "     make analyze-metrics - 分析實驗效能"
-	@echo "     make analyze-by-model - 按模型分析效能"
-	@echo "     make analyze-by-dataset - 按資料集分析效能"
+	@echo "🧰 CI/CD"
+	@echo "  make docker-build       建構 Docker 映像"
+	@echo "  make helm-dryrun        模擬 Helm 部署"
+	@echo "  make helm-deploy        正式部署 Helm Chart"
 	@echo ""
-	@echo "⚙️ 配置管理："
-	@echo "  1. 使用預設配置："
-	@echo "     - 編輯 config/default.yaml"
-	@echo "     - 包含所有可調整的參數"
+	@echo "🤖 推論與測試"
+	@echo "  make serve              啟動推論服務"
+	@echo "  make predict-text text='Hello world!'"
 	@echo ""
-	@echo "  2. 使用命令列參數（僅用於本地訓練）："
-	@echo "     PYTHONPATH=$(PWD) python app/train_lora_v2.py [參數]"
+	@echo "📊 資料與分析"
+	@echo "  make data-analyze       分析資料集分布"
+	@echo "  make analyze-metrics    分析實驗效能"
 	@echo ""
-	@echo "     常用參數："
-	@echo "     --experiment_name TEXT    實驗名稱"
-	@echo "     --learning_rate FLOAT     學習率"
-	@echo "     --epochs INT              訓練輪數"
-	@echo "     --train_samples INT       訓練樣本數"
-	@echo "     --device TEXT             指定設備 (cuda/mps/cpu)"
+	@echo "🐝 壓測工具"
+	@echo "  make load-test          啟動 Locust 壓力測試"
 	@echo ""
-	@echo "🔧 資料管理工具（僅供開發測試用）："
-	@echo "  註：這些命令會使用預設的 SST-2 範例資料集"
-	@echo "  實際訓練時的資料管理已整合在訓練流程中"
+	@echo "💡 提示："
+	@echo "  1️⃣ 先執行 make setup-conda 初始化環境"
+	@echo "  2️⃣ 執行 make run-local 進行訓練"
+	@echo "  3️⃣ make test / lint / helm-dryrun 驗證系統"
 	@echo ""
-	@echo "  make data-analyze   - 分析資料集分布"
-	@echo "  make data-validate  - 驗證資料集品質"
-	@echo "  make data-versions  - 管理資料版本"
-	@echo ""
-	@echo "☸️  Kubernetes 部署："
-	@echo "  1. 快速開始："
-	@echo "     make k8s-quick-deploy  - 一鍵部署（建構+部署）"
-	@echo "     make k8s-setup         - 安裝並啟動 minikube"
-	@echo "     make k8s-build         - 建構 Docker 映像"
-	@echo "     make k8s-build-fast    - 快速建構（輕量版）"
-	@echo "     make k8s-deploy        - 部署到 Kubernetes"
-	@echo ""
-	@echo "  2. 管理操作："
-	@echo "     make k8s-status        - 查看部署狀態"
-	@echo "     make k8s-logs          - 查看服務日誌"
-	@echo "     make k8s-restart       - 重啟服務"
-	@echo "     make k8s-scale         - 擴展服務"
-	@echo "     make k8s-verify        - 驗證部署"
-	@echo "     make k8s-cleanup       - 清理資源"
-	@echo "     make k8s-full-cleanup  - 完全清理（包含映像）"
